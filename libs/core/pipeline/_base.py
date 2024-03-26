@@ -1,10 +1,10 @@
 from abc import abstractmethod
 import weakref
-from pydantic import BaseModel, ConfigDict,Field
+from pydantic import BaseModel, ConfigDict,Field, model_validator
 # typing
 from typing import Sequence, Dict, List, Optional, Callable, Union, Any
 
-from llmagpie.core.dag import DAG
+from llmagpie.core.dag import SingleDAG
 from llmagpie.core.node import BaseNode
 from llmagpie.core.node_disposable import BaseNodeDisposable
 
@@ -14,15 +14,14 @@ class BasePipelineMixin(BaseModel):
         arbitrary_types_allowed=True
     )
     complied: bool = False
-    graph: DAG = Field(default_factory=DAG)
+    graph: SingleDAG = Field(default_factory=SingleDAG)
     
+    # NOT_USED
     def _check_complie_status(self):
         assert self.compiled, "The pipeline is not complied."
     
-    def _get_root_nodes(self):
-        return [n for n, d in self.graph.in_degree() if d == 0]
-    
-    def __init__(self, nodes, *args, **kwargs):
+
+    def __init__(self, nodes: List = [], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.add_nodes(nodes)
     
@@ -61,10 +60,6 @@ class BasePipelineMixin(BaseModel):
             )
         else:
             raise TypeError
-    
-    @abstractmethod
-    def validate(self, *args, **kwargs):
-        """"""
         
     @abstractmethod
     def compile(self):

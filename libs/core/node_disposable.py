@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, ConfigDict, TypeAdapter, computed_field, 
 from inspect import isawaitable
 
 # typing
-from typing import Awaitable, Sequence, Dict, Optional, Union, Tuple, List, Set,Any,Callable, Type
+from typing import Awaitable, Sequence, Dict, Optional, Union, Tuple, List, Set, Any,Callable, Type
 
 class BaseNodeDisposable(BaseModel):
     node: Any # TODO
@@ -17,12 +17,16 @@ class BaseNodeDisposable(BaseModel):
     keys_internal: Dict = None
     conditional_func: Callable = None
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    @model_validator(mode="after")
+    def validate_and_add(self):
         self.keys_internal = {
             "as_input": {self.node._io_key_mapping["input"].get(k) for k in self.keys},
             "as_output": {self.node._io_key_mapping["output"].get(k) for k in self.keys},
         }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
         
     @classmethod
     def create(cls, node, keys):
@@ -95,7 +99,11 @@ class BaseNodeDisposable(BaseModel):
             lower.node.is_start_node = False
             upper.node.is_end_node = False
             
-            lower.node.graph.add_edge(
+            # update graph
+            upper.node.graph.update(lower.node.graph)
+            lower.node.graph = upper.node.graph
+            # update edge
+            upper.node.graph.add_edge(
                 u_of_edge=upper.node._id,
                 v_of_edge=lower.node._id,
                 #

@@ -11,12 +11,16 @@ from pydantic._internal._model_construction import ModelMetaclass
 from inspect import isawaitable
 from types import MethodType
 
-from llmagpie.core.dag import DAG
+from llmagpie.core.dag import SingleDAG
 from llmagpie.core.node_disposable import BaseNodeDisposable
-from llmagpie.core.function import func_input_validator, create_schema_from_function
-from llmagpie.core.function import fire_single
+from llmagpie.core.function import (
+    fire_single, 
+    func_input_validator,
+    create_schema_from_function
+)
+
 # typing
-from typing import Awaitable, Sequence, Dict, Optional, Union, Tuple, List, Set,Any,Callable, Type
+from typing import Awaitable, Dict, Union, List, Set, Any, Callable, Type
 
 
 class BaseNodeMixin(BaseModel):
@@ -41,7 +45,7 @@ class BaseNodeMixin(BaseModel):
 
 class BaseNode(BaseNodeMixin):
     name: str = Field(default=None)
-    graph: DAG = Field(default=DAG(name=uuid.uuid4().hex))
+    graph: SingleDAG = Field(default_factory=lambda: SingleDAG(name=uuid.uuid4().hex))
     
     input_keys: List[str] = []
     output_keys: List[str] = []
@@ -70,47 +74,22 @@ class BaseNode(BaseNodeMixin):
     _io_key_mapping = Dict[str, Dict[str, str]]
     
     @model_validator(mode="after")
-    def validate_io_keys(self):
-        # TODO
-        # wrap function
-        # print(self.NodeDataInput)
-        # self.NodeDataInput = create_schema_from_function(self.call)
-        # print(self.NodeDataInput)
-        
+    def validate_and_add(self):
         if self.input_keys == []:
             self.input_keys = self.input_keys_internal
         if self.output_keys == []:
             self.output_keys = self.output_keys_internal
         
-        return self
-    
-    # @classmethod
-    # def create(cls, *args, **kwargs):
-    #     output_keys_internal
-    
-    def __init__(self, *args, **kwargs):
-        kwargs.update({
-            "NodeDataInput": create_schema_from_function(self.call)
-        })
-        # print(create_schema_from_function(self.call))
-        
-        super().__init__(*args, **kwargs)
-        
         if not self.name:
             self.name = self.obj_name
-        
+            
         _schema = {_n: (Any, Field()) for _n in self.output_keys_internal}
         self.NodeDataOutput = create_model(
             self.class_name + "Output",
             **_schema
         )
         
-        # if not self.output_keys:
-        #     self.output_keys = self.output_keys_internal
-
-        # TODO
         # wrap function
-        # self.NodeDataInput = create_schema_from_function(self.call)
         object.__setattr__(self, "call", func_input_validator(self.call))
         
         self._io_key_mapping = dict(
@@ -123,7 +102,19 @@ class BaseNode(BaseNodeMixin):
             name=self.name,
             _obj=weakref.ref(self),
         )
-           
+        
+        return self
+    
+    # @classmethod
+    # def create(cls, *args, **kwargs):
+    #     """""" 
+    
+    def __init__(self, *args, **kwargs):
+        kwargs.update(dict(
+            NodeDataInput=create_schema_from_function(self.call)
+        ))
+        super().__init__(*args, **kwargs)
+        
     def __or__(self, keys):
         if isinstance(keys, str):
             keys = [keys]

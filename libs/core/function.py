@@ -64,7 +64,7 @@ async def fire_single(
     try:
         res, error = None, None
         session_id = uuid.uuid4().hex if not session_id else session_id
-        _node_name = cls_object.graph.root_nodes()[0]
+        _node_name = cls_object.graph.root_nodes[0]
         root_node = cls_object.graph.nodes[_node_name]["_obj"]()
         
         await root_node.trigger(

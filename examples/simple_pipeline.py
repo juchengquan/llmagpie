@@ -32,9 +32,9 @@ c = TestNode(
     name = "c",
 )
 
-q = SinglePipeline(nodes=[b])
+q = SinglePipeline()
 q.add_node(c)
-q.add_nodes([a])
+q.add_nodes([a, b])
 
 (a | "output")  >> (b | "input")
 (a | "output")  >> (c | "input")

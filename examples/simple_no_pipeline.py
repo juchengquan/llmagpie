@@ -1,7 +1,5 @@
 import asyncio
 from llmagpie.core.node import BaseNode
-from llmagpie.core.node_disposable import BaseNodeDisposable
-from llmagpie.core.pipeline.single_pipeline import SinglePipeline
 from llmagpie.core.function import func_input_validator
 from typing import Type, Set, Dict, Any, List
 
@@ -31,7 +29,6 @@ c = TestNode(
 (a | "output")  >> (c | "input")
 
 c._make_fire()
-print(c.graph.nodes)
 
 print("DONE")
 inputs = {
