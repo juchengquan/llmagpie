@@ -1,0 +1,47 @@
+[build-system]
+requires = [
+    "setuptools",
+]
+build-backend="setuptools.build_meta"
+
+[project]
+name = "llmagpie"
+version = "0.0.1"
+requires-python = ">=3.9"
+authors = [
+    {name="blackmount8"}
+]
+classifiers = [
+    "Protramming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT LIcense",
+    "Operation System :: OS Independent",
+]
+
+dependencies = [
+    "numpy",
+    "networkx",
+    "deprecated",
+    "chromadb",
+    "pydantic",
+    "requests",
+]
+
+[project.optional-dependencies]
+all = [
+    "uvicorn[stanadard]",
+    "fastapi",
+    "pytz==2022.7",
+]
+
+[tool.setuptools]
+packages = [
+    "llmagpie",
+    "llmagpie.core",
+    "llmagpie.experimental",
+]
+
+[tool.setuptools.package-dir]
+"llmagpie" = "libs/llmagpie/main"
+"llmagpie.core" = "libs/llmagpie/core"
+"llmagpie.experimental" = "libs/llmagpie/experimental"
+

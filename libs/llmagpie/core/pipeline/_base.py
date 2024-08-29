@@ -1,34 +1,33 @@
 from abc import abstractmethod
 import weakref
+import uuid
 from pydantic import BaseModel, ConfigDict,Field, model_validator
 # typing
 from typing import Sequence, Dict, List, Optional, Callable, Union, Any
 
 from llmagpie.core.dag import SingleDAG
-from llmagpie.core.node import BaseNode
-from llmagpie.core.node_disposable import BaseNodeDisposable
+from llmagpie.core.node.base_node import BaseNode, BaseNodeDisposable
 
 class BasePipelineMixin(BaseModel):
-    model_config: ConfigDict = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True
-    )
+    class Config:
+        extra = "forbid"
+        arbitrary_types_allowed = True
+    
     complied: bool = False
-    graph: SingleDAG = Field(default_factory=SingleDAG)
+    graph: SingleDAG = Field(default=SingleDAG(name=uuid.uuid4().hex))
     
     # NOT_USED
-    def _check_complie_status(self):
-        assert self.compiled, "The pipeline is not complied."
+    # def _check_complie_status(self):
+    #     assert self.compiled, "The pipeline is not complied."
     
-
     def __init__(self, nodes: List = [], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.add_nodes(nodes)
     
-    def add_node(self, node, name: str=None):
+    def add_node(self, node, name: Optional[str]=None):
         self._add_node(node, name) if name else self._add_node(node, node.name) 
         
-    def add_nodes(self, nodes):
+    def add_nodes(self, nodes: Union[Sequence[BaseNode], Dict[str, BaseNode]]):
         if isinstance(nodes, Sequence):
             for n in nodes:
                 self._add_node(n, n.name)
@@ -37,17 +36,30 @@ class BasePipelineMixin(BaseModel):
                 self._add_node(n, n_name)
         
     def _add_node(self, node: BaseNode, name: str):
-        if node.graph != self.graph:
-            self.graph.update(node.graph)
-            node.graph = self.graph
+        # TODO
+        node.graph = self.graph
+        
+        # if node.graph != self.graph:
+        #     self.graph.update(node.graph)
+        #     del node.graph
+        #     node.graph = self.graph
+            
+        #     print("GGG")
+        #     print(self.graph)
+        #     print(node.graph)
+            
         if node._id not in self.graph.nodes:
-            self.graph.add_node(node._id, name=node.name, _obj=weakref.ref(node))
+            self.graph.add_node(
+                node._id,
+                name=node.name,
+                _obj=weakref.ref(node),
+            )
     
     def add_edge(self, 
         src_node: Union[BaseNode, BaseNodeDisposable],
         dest_node: Union[BaseNode, BaseNodeDisposable],
-        src_key: Union[List[str], str] = None,
-        dest_key: Union[List[str], str] = None,
+        src_key: Optional[Union[List[str], str]] = None,
+        dest_key: Optional[Union[List[str], str]] = None,
         conditional_func: Optional[Callable] = lambda *args, **kwargs: True
     ):
         if isinstance(src_node, BaseNodeDisposable) and isinstance(dest_node, BaseNodeDisposable):
@@ -63,6 +75,5 @@ class BasePipelineMixin(BaseModel):
         
     @abstractmethod
     def compile(self):
-        """"""
-        # weakref
+        raise NotImplementedError
     
