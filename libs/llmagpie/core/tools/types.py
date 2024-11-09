@@ -1,13 +1,14 @@
 import json
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional, Type, Dict
+from typing import Any, Dict, Optional, Type
 from pydantic import BaseModel
 
 
 class DefaultToolFnSchema(BaseModel):
-    """Default tool function schema"""
+    """Default tool function Schema."""
     input: str
+
 
 @dataclass
 class ToolMetadata:
@@ -21,8 +22,9 @@ class ToolMetadata:
             parameters = {
                 "type": "object",
                 "properties": {
-                    "input": {"title": "input query string", "type": "string"}
-                }
+                    "input": {"title": "input query string", "type": "string"},
+                },
+                "required": ["input"],
             }
         else:
             parameters = self.fn_schema.schema()
@@ -35,7 +37,7 @@ class ToolMetadata:
 
     @property
     def fn_schema_str(self) -> str:
-        """Get fn_schema as string."""
+        """Get fn schema as string."""
         if self.fn_schema is None:
             raise ValueError("fn_schema is None.")
         parameters = self.get_parameters_dict()
@@ -44,18 +46,20 @@ class ToolMetadata:
     def get_name(self) -> str:
         """Get name."""
         if self.name is None:
-            raise ValueError("Name is empty.")
+            raise ValueError("name is None.")
         return self.name
 
 
 class ToolOutput(BaseModel):
-    """Tool Output"""
+    """Tool output."""
+
     content: str
     tool_name: str
     tool_input: Dict[str, Any]
     tool_output: Any
 
     def __str__(self) -> str:
+        """String."""
         return str(self.content)
 
 
@@ -63,8 +67,8 @@ class BaseTool:
     @property
     @abstractmethod
     def metadata(self) -> ToolMetadata:
-        ...
+        pass
 
     @abstractmethod
-    def __call__(self, input: Any, *args: Any, **kwds: Any) -> ToolOutput:
-        ...
+    def __call__(self, input: Any) -> ToolOutput:
+        pass

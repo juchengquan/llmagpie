@@ -1,0 +1,56 @@
+import asyncio
+import time
+from jibberjabber.core.nodes import BaseNode, BaseServiceRetriever
+from jibberjabber.core.pipeline import MultiHeadPipeline
+from jibberjabber.core.utilities.wrapper import socket_types
+# typing
+from typing import List
+from app_instances._examples.aux_exec import AuxExecutor
+
+class EntryNode(BaseNode):
+    @socket_types(entry_outputs=str)
+    async def async_call(self, inputs: str):
+        time.sleep(0.1)
+        return dict(entry_outputs=inputs + "@" + self.name)
+    
+class MiddleNode_B(BaseNode):
+    counter: int = 0
+    #max_visit_count = 3
+    @socket_types(middle_output1=str, middle_output2=str, last_outputs=str)
+    async def async_call(self, initial_inputs: str, other_input1: str="loop data1",other_input2: str="loop data2"):
+        time.sleep(0.5)
+        self.counter += 1
+        if self.counter >= 3:
+            print("Counter Hits Maximum")
+            return dict(last_outputs=initial_inputs + "_FINAL")
+        else:
+            print("##Counter: ",self.counter)
+            return dict(middle_output1=f'{other_input1}_{self.counter}',middle_output2=f'{other_input2}_{self.counter}')
+
+
+class MiddleNode_C(BaseNode):
+    @socket_types(end_outputs=str)
+    async def async_call(self, end_inputs: str):
+        self.logger.debug("END!")
+        return dict(end_outputs=end_inputs + "@" + self.name)
+
+
+if __name__ == "__main__":
+    a = EntryNode(name="A")
+    b = MiddleNode_B(name="B")
+    c = MiddleNode_C(name="C")
+    
+    pipe = MultiHeadPipeline(name="OUTER", nodes=[a, b, c])
+
+    (a >> "entry_outputs") >> ("initial_inputs" >> b)
+    (b >> "middle_output1") >> ("other_input1" >> b)
+    (b >> "middle_output2") >> ("other_input2" >> b)
+    (b >> "last_outputs") >> ("end_inputs" >> c)
+
+    pipe.compile()
+
+    inputs = {
+        "A.inputs": "Hello"
+    }
+    
+    AuxExecutor(pipe, inputs)
