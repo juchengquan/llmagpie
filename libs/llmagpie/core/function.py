@@ -2,23 +2,31 @@ import asyncio
 import uuid
 import time
 from inspect import getfullargspec, signature, _empty
-from typing import Callable, Any, cast, Type, Dict, Union
 from pydantic import BaseModel, Field, create_model
 from pydantic._internal._model_construction import ModelMetaclass
 from functools import wraps
 from asyncio import create_task
+from typing import Callable, Any, cast, Type, Dict, Union, Annotated, get_origin
+
+
+class _SchemaConfig:
+    extra: Any = "forbid"
+    arbitrary_types_allowed: bool = True
+
+    @staticmethod
+    def json_schema_extra(schema: dict[str, Any], model) -> None:
+        for prop in schema.get('properties', {}).values():
+            prop.pop('title', None)
 
 
 def create_schema_from_function(
     function: Callable,
-    name: str = None,
-    in_class: bool = False
+    in_class: bool = False,
 ) -> BaseModel:
     """Create schema from function.
 
     Args:
         function (Callable): Function
-        name (str, optional): Function name. Defaults to None.
         in_class (bool, optional): If the function is in class. Defaults to False.
 
     Raises:
@@ -27,10 +35,10 @@ def create_schema_from_function(
     Returns:
         BaseModel
     """
-    if not name:
-        name = function.__name__ + "_Input"
+    function_name = function.__name__ + "_Input"
     args = getfullargspec(function)
-    # TODO
+    # assert "return" in args.annotations, "Return value type is not declared."
+
     if args.varargs or args.varkw:
         raise ValueError("arg of kwargs are not allowed in function definition.")
 
@@ -41,6 +49,11 @@ def create_schema_from_function(
         if in_class and idx == 0:
             continue
         p_type = p_val.annotation
+        p_description = None
+        if get_origin(p_type) == Annotated:
+            p_description = p_type.__metadata__[0]
+            p_type = p_type.__origin__
+
         p_default = p_val.default
 
         if p_type is _empty:
@@ -48,12 +61,11 @@ def create_schema_from_function(
 
         if p_default is _empty:
             # Required field
-            p_default = Field(...)
+            p_field = Field(description=p_description)
         else:
             # Field with pydantic.Field as default value
-            p_default = Field(default=cast(p_type, p_default))
+            p_field = Field(default=cast(p_type, p_default), description=p_description)
+    
+        fields[p_name] = (p_type, p_field)
 
-        fields[p_name] = (p_type, p_default)
-
-    return create_model(name, **fields)
-
+    return create_model(function_name, **fields, __config__=_SchemaConfig)

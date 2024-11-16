@@ -60,7 +60,5 @@ class QueryPipelineWithFastAPI(BasePipelineMixin):
             )
             self.fastapi_app.mount(path="/metrics", app=make_metrics_app())
             return self
-        except AssertionError as err:
-            raise err
-        except Exception as err:
-            raise err
+        except (AssertionError, Exception) as exc:
+            raise exc

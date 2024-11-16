@@ -2,6 +2,7 @@ import os
 import pytz
 import logging
 import datetime
+import pathlib
 from logging.handlers import TimedRotatingFileHandler
 
 
@@ -73,8 +74,10 @@ def get_or_create_logger(logger_name: str = "default", file_path: str = None):
     """Get the logger with name or create if it does not exist.
     """
     if not file_path:
+        log_path = os.getenv("LOG_DIR", pathlib.Path().resolve().parent / "logs")
+        os.makedirs(log_path, exist_ok=True)
         # file_path = "/home/cdsw/logs/info.log"
-        file_path = f'{os.environ["LOG_DIR"]}/info.log'
+        file_path = f'{log_path}/info.log'
     # Setup streamhandler which outputs to console
     streamhandler = logging.StreamHandler()
     streamhandler.setLevel(logging.INFO)

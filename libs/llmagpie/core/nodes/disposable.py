@@ -28,9 +28,9 @@ class BaseNodeDisposable(BaseModel):
     def _check_keys_subset(self, _keys_mapped: list, _keys_full_list: list):
         try:
             assert set(_keys_mapped).issubset(_keys_full_list)
-        except AssertionError as err:
-            self.logger.error(str(err) + f'{_keys_mapped};{_keys_full_list}')
-            raise AssertionError(str(err) + f'{_keys_mapped};{_keys_full_list}')
+        except AssertionError as exc:
+            self.logger.error(str(exc) + f'{_keys_mapped};{_keys_full_list}')
+            raise AssertionError(str(exc) + f'{_keys_mapped};{_keys_full_list}')
 
     def _check_if_key_in_subset(self, _key: str, _keys_full_list: list):
         assert _key in _key, AssertionError(f'{_key} not in {_keys_full_list}')
@@ -39,9 +39,9 @@ class BaseNodeDisposable(BaseModel):
     def _check_keys_intersection(self, _keys_mapped: list, _keys_list: set):
         try:
             assert set(_keys_mapped).intersection(_keys_list) == set()
-        except AssertionError as err:
-            self.logger.error(str(err) + f'{_keys_mapped};{_keys_list}')
-            raise AssertionError(str(err) + f'{_keys_mapped};{_keys_list}')
+        except AssertionError as exc:
+            self.logger.error(str(exc) + f'{_keys_mapped};{_keys_list}')
+            raise AssertionError(str(exc) + f'{_keys_mapped};{_keys_list}')
 
     def __lshift__(self, node_runnables: "BaseNodeDisposable"):
         self._set_edge(node_runnables, upstream=True)

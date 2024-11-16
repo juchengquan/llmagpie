@@ -4,7 +4,7 @@ from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
 from llmagpie.core.pipeline import MultiHeadPipeline
 from llmagpie.core.utilities.wrapper import socket_types
 # typing
-from typing import List, Iterable
+from typing import List
 
 
 class EntryNode(BaseNode):
@@ -23,22 +23,13 @@ class MiddleNode_C(BaseNode):
     @socket_types(outputs=str)
     async def async_call(self, inputs: str):
         time.sleep(0.1)
-        # return dict(outputs=inputs + "@" + self.name + "_C")
-        
-        async def func():
-            output_val = inputs + "@" + self.name + "_C"
-            for i in range(3):
-                output_val += str(i)
-                yield dict(outputs=output_val)
-                
-
-        return func()
+        return dict(outputs=inputs + "@" + self.name + "_C")
 
 class MiddleNode_D(BaseNode):
     @socket_types(outputs=str)
-    async def async_call(self, inputs: str, inputs_2: str):
+    async def async_call(self, inputs: str):
         self.logger.debug("END!")
-        return dict(outputs=inputs + "@" + self.name + "_D" + inputs_2)
+        return dict(outputs=inputs + "@" + self.name + "_D")
 
 
 if __name__ == "__main__":
@@ -48,18 +39,24 @@ if __name__ == "__main__":
     c1 = MiddleNode_C(name="C1")
     c2 = MiddleNode_C(name="C2")
     d = MiddleNode_D(name="DD")
-    
-    pipe = MultiHeadPipeline(name="OUTER", nodes=[a, b1, c1, b2, c2, d])
 
-    (a >> "outputs") >> ("inputs" >> b1)
-    (b1 >> "outputs") >> ("inputs" >> c1)
-    (c1 >> "outputs") >> ("inputs" >> d)
+    p_b = MultiHeadPipeline(name="B_PIPE", nodes=[b1, b2])
+    p_c = MultiHeadPipeline(name="C_PIPE", nodes=[c1, c2])
+
+    (b1 >> "outputs") >> ("inputs" >> b2)
+    p_b.compile()
+    (c1 >> "outputs") >> ("inputs" >> c2)
+    p_c.compile()
     
-    (a >> "outputs") >> ("inputs" >> b2)
-    (b2 >> "outputs") >> ("inputs" >> c2)
-    (c2 >> "outputs") >> ("inputs_2" >> d)
+    pipe = MultiHeadPipeline(name="OUTER", nodes=[a, p_b, p_c, d])
+    
+    (a >> "outputs") >> ("B1.inputs" >> p_b)
+    (p_b >> "B2.outputs") >> ("C1.inputs" >> p_c)
+    (p_c >> "C2.outputs") >> ("inputs" >> d)
+
     pipe.compile()
-
+    print("Finished compiling")
+    
     inputs = {
         "AA.inputs": "Hello"
     }

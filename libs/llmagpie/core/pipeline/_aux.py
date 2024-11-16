@@ -15,15 +15,16 @@ def _as_task(iterator: AsyncIterator[_T]) -> Task[_T]:
 def make_as_task(iterator) -> Task[_T]:
     return _as_task(iterator) if isinstance(iterator, AsyncIterator) else create_task(iterator)
 
-def decompose(dt: dict) -> dict:
+def decompose_pipeline(dt: dict) -> dict:
     res = {}
     for k, v in dt.items():
-        if v[-1]["_type"] == "Pipeline":
-            res.update({
-                f"{k}.{kk}": vv for kk, vv in decompose(v[-1]["value"]).items()
-            })
-        else:
-            res.update({
-                f"{k}.{kk}": vv for kk, vv in v[-1]["value"].items() 
-            })
+        if v is not None:
+            if v[-1]["_type"] == "Pipeline":
+                res.update({
+                    f"{k}.{kk}": vv for kk, vv in decompose_pipeline(v[-1]["value"]).items()
+                })
+            else:
+                res.update({
+                    f"{k}.{kk}": vv for kk, vv in v[-1]["value"].items() 
+                })
     return res

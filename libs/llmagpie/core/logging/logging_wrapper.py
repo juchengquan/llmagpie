@@ -43,6 +43,6 @@ def fastapi_wrapper(func):
             if isawaitable(result):
                 result = await result
             return result
-        except Exception as err:
-            raise HTTPException(status_code=400, detail=repr(err))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=repr(exc))
     return wrapper

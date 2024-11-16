@@ -49,10 +49,10 @@ all = [
 packages=[
    "llmagpie",
    "llmagpie.core",
-   "llmagpie.exp",
+   "llmagpie.experimental",
 ]
 
 [tool.setuptools.package-dir]
 "llmagpie" = "main"
 "llmagpie.core" =  "core"
-"llmagpie.exp" =  "experimental"
+"llmagpie.experimental" =  "experimental"

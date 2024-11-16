@@ -1,8 +1,8 @@
 import asyncio
 import time
-from jibberjabber.core.nodes import BaseNode, BaseServiceRetriever
-from jibberjabber.core.pipeline import MultiHeadPipeline
-from jibberjabber.core.utilities.wrapper import socket_types
+from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
+from llmagpie.core.pipeline import MultiHeadPipeline
+from llmagpie.core.utilities.wrapper import socket_types
 # typing
 from typing import List
 

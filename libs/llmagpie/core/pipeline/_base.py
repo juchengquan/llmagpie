@@ -1,7 +1,6 @@
 from __future__ import annotations
 from abc import abstractmethod
 import uuid
-import asyncio
 import time
 import json
 import os
@@ -17,15 +16,15 @@ from llmagpie.core.connectable import BaseConnectable
 from llmagpie.core.nodes import BaseNode
 from llmagpie.core.nodes._base import BaseNodeDisposable
 from llmagpie.core.logging import get_or_create_logger
-from llmagpie.exp.merge_iterators import merge_iterators
-from llmagpie.exp.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
+# from llmagpie.experimental.merge_iterators import merge_iterators
+from llmagpie.experimental.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
 
 from typing import (
     AsyncIterable, AsyncIterator, Collection, TypeVar, Any,
     Sequence, Dict, Union, Optional, List, Callable
 )
 
-from ._aux import make_as_task, decompose
+from ._aux import make_as_task, decompose_pipeline
 
 
 class BasePipelineMixin(BaseConnectable):
@@ -83,6 +82,7 @@ class BasePipelineMixin(BaseConnectable):
         return self
 
     def add_nodes(self, nodes: Union[Sequence[BaseNode], Dict[str, BaseNode]]):
+        assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
         """Add nodes."""
         if isinstance(nodes, Sequence):
             for n in nodes:
@@ -92,6 +92,7 @@ class BasePipelineMixin(BaseConnectable):
                 self._add_node(n, n_name)
 
     def _add_node(self, node: BaseNode, node_key: str):
+        assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
         # bind pipeline reference to node
         node.pipeline = self
 
@@ -110,6 +111,7 @@ class BasePipelineMixin(BaseConnectable):
     ):
         """Add edge.
         """
+        assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
         if isinstance(src_node, BaseNodeDisposable) and isinstance(dest_node, BaseNodeDisposable):
             # src_node >> dest_node
             src_node._set_edge(dest_node, upstream=False)
@@ -129,30 +131,38 @@ class BasePipelineMixin(BaseConnectable):
     # async def _execute(self, **kwargs):
     #     ...
     
-    def _collect_head_tasks(self, session_id: str, inputs: Dict, root_nodes: List[BaseNode]):
+    def _collect_head_tasks(
+        self,
+        session_id: str,
+        inputs: Dict,
+        root_nodes: List[BaseNode]
+    ):
         try:
+            assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
             _root_node_input_schema = set( self._input_schema_all["internal"].keys() )
             _root_node_required_input = set( self._input_schema_required["internal"] )
             
-            #assert _root_node_input_schema == set(inputs.keys()), f"{_root_node_input_schema} | {inputs.keys()}"
             assert set(_root_node_required_input).issubset(set(inputs.keys())) \
-              and set(inputs.keys()).issubset(_root_node_input_schema), "Required inputs parameters are not fully bound. Or unknown keys bound."
+                and set(inputs.keys()).issubset(_root_node_input_schema), "Required inputs parameters are not fully bound. Or unknown keys bound."
 
             _task_dict = dict()
 
             for _child in root_nodes:
                 assert _child.is_start
-                
+                if _child.history_object_store == {} and self.history_object_store.get(session_id, []):
+                    print("***self: ", self, _child)
+                    try:
+                        _child.history_object_store = self._flatten_history_object_store(session_id)
+                    except Exception as exc:
+                        # self.logger.warning(f"{_child} is the head node of the session.")
+                        self._error_callback(session_id, exc)
+
                 # TODO: make sure that input name in all nodes are different
                 _inputs = {
                     ".".join(k.split(".")[1:]): v for k, v in inputs.items() \
                         if ".".join(k.split(".")[1:]) in _child._input_schema_all["internal"]
                 }
-
-                _inputs = _child.precheck(
-                    session_id=session_id,
-                    inputs=_inputs,
-                )
+                _inputs = _child.precheck(session_id=session_id, inputs=_inputs)
                 if _inputs:
                     _iterator_target: AsyncIterator = _child.event_on_execution(
                         session_id=session_id,
@@ -168,21 +178,20 @@ class BasePipelineMixin(BaseConnectable):
 
             return _task_dict
         except (BaseException, Exception) as exc:
-            raise exc
+            self._error_callback(session_id, exc)
 
-    def _collect_parent_tasks(
+    def _collect_children_tasks(
         self,
         session_id: str,
         output_values_internal: Optional[BaseModel, Dict],
         parent: BaseConnectable,
         ):
         try:
+            assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
             assert any(x is not None for x in output_values_internal.values()), \
-                f"{parent.name}: No parameter is filled."
-        except AssertionError as err:
-            # TODO: delete from local_store
-            self.logger.error(f'{parent.name} -> {err}')
-            raise CancelledError(err)
+                f"{parent.name}: No parameter is filled; all are None."
+        except AssertionError as exc:
+            self._error_callback(session_id, CancelledError(exc))
 
         try:
             # EMIT TO CHILDREN of the node
@@ -194,11 +203,7 @@ class BasePipelineMixin(BaseConnectable):
                 # emit value to children: change the name from output into input
                 if child.input_object_store.get(session_id, None) is None:
                     child.input_object_store[session_id] = {
-                        _key: {parent._id: []} for _key in child._input_schema_all["internal"]  # TODO: find a more effient way to do this!
-                    }
-                if child.stack_object_store.get(session_id, None) is None:
-                    child.stack_object_store[session_id] = {
-                        _key: {parent._id: []} for _key in child._input_schema_all["internal"]  # TODO: find a more effient way to do this!
+                        _key: {} for _key in child._input_schema_all["internal"]  # TODO: find a more effient way to do this!
                     }
 
                 _input_values_internal = {
@@ -206,23 +211,13 @@ class BasePipelineMixin(BaseConnectable):
                 }
                 if _input_values_internal != {}:
                     for _key, _value in _input_values_internal.items():
-                        child.input_object_store[session_id][_key][parent._id] = child.input_object_store[session_id][_key].get(parent._id, [])  # TODO: find a more effient way to do this!
-                        child.input_object_store[session_id][_key][parent._id].append({
+                        child.input_object_store[session_id][_key] = child.input_object_store[session_id].get(_key, {})
+                        child.input_object_store[session_id][_key][parent._id] = {
                             "_timestamp": time.time(),
                             "value": _value,
-                        })
-                        try:
-                            print("XXXX>>>",  child.stack_object_store[session_id][_key][parent._id])
-                            child.stack_object_store[session_id][_key][parent._id].append({child.input_object_store[session_id][_key][parent._id]})
-                            print("YYYYY>>>",  child.stack_object_store[session_id][_key][parent._id])
-                        except:
-                            child.stack_object_store[session_id][_key].update({
-                                parent._id: child.input_object_store[session_id][_key][parent._id]
-                            })
-
+                        }
+                    
                     _inputs = child.precheck(session_id=session_id)
-                    # self.logger.debug("## inputs: ", _inputs)
-                    # self.logger.debug("## node_name: ",child.name)
                     if _inputs:
                         self.logger.debug(f"{parent.name} -> emitted to -> {child.name}")
                         iterator_target = child.event_on_execution(
@@ -244,179 +239,14 @@ class BasePipelineMixin(BaseConnectable):
                     self.logger.debug(f"{parent.name} -> NOT emitted to -> {child.name}: Input emprty")
             return iterator_dt
 
-        except CancelledError as err:
-            self.logger.error(f"{parent.__class__.__name__}: {err}")
-            raise Exception(f"{parent.name}: Task async_emit has been cancelled. {err}")
-        except (Exception, BaseException) as err:
-            self.logger.error(f"{parent.__class__.__name__}: {err}")
-            raise err
+        except CancelledError as exc:
+            self._error_callback(session_id, Exception(f"{parent.name}: Task async_emit has been cancelled. {exc}"))
+        except (Exception, BaseException) as exc:
+            self._error_callback(session_id, exc)
 
-    def precheck(
-        self,
-        session_id: str,
-        inputs: Dict = None,
-        **kwargs
-    ) -> Union[Dict, None]:
-        try:
-            if inputs is None:
-                inputs = self._get_local_store(session_id)
-
-            # Patches
-            if isinstance(inputs, Union[ModelMetaclass, BaseModel]):
-                inputs = inputs.model_dump()
-
-            if not (
-                set(inputs.keys()).issubset(self._input_schema_all["internal"]) and \
-                set(self._input_schema_required["internal"]).issubset(set(inputs.keys()))
-            ):  
-                self.logger.warning(f'{self.__class__.__name__}:{self.name}: Input pamatemeters {set(inputs.keys())} does not align with the keys: {set(self._input_schema_all["internal"])}\
-                or Required input parameters {set(self._input_schema_required["internal"])} does not align with the input keys: {set(inputs.keys())}')
-                
-                self.logger.warning(f"[PRECHECK] NOT EXECUTED YET -> {self.name}")  # TODO: raise error
-                return None
-            return inputs
-        except (BaseException, Exception) as err:
-            self.clean_object_store(session_id)
-            raise Exception(err)
-
-    async def event_on_execution(
-        self,
-        inputs: Dict,
-        session_id: str = None,
-        **kwargs
-    ) -> AsyncIterator:
-        """EXECUTION when the node is triggered."""
-        try:
-            session_id = uuid.uuid4().hex if not session_id else session_id
-            _inputs = self.precheck(session_id, inputs)
-        except (BaseException, Exception) as err:
-            self.clean_object_store(session_id)
-            raise Exception(err)
-
-        try:
-            if _inputs:
-                # TODO cqju: uncomment to unlock opentelemetry
-                if OTEL_ENABLED:
-                    span = opentelemetry_tracer._tracer.start_span(self.name)
-                    span.set_attributes({
-                        "input.value": json.dumps(_inputs),  
-                    })
-                    # TODO: cqju remove for opentelemetry
-                    span.set_attributes({
-                        "openinference.span.kind": "CHAIN",  
-                    })
-                    # Creates a Context object with parent set as current span
-                    ctx = trace.set_span_in_context(span)
-                    # Set as the implicit current context
-                    token = context.attach(ctx)
-
-                root_nodes = [self.graph.nodes[_node_id]["_obj"] for _node_id in self.graph.head_nodes]
-                task_dict = self._collect_head_tasks(session_id, _inputs, root_nodes)
-                # compile upon running
-                iterator_dict = {
-                    asset["iterator"]: {
-                        "node_id": asset["node_id"],
-                        "node_name": asset["node_name"],
-                        "iterator": asset["iterator"], 
-                        "task": make_as_task(asset["iterator"]),
-                    } for _, asset in task_dict.items()
-                }
-
-                while iterator_dict:
-                    done_tasks, pending = await asyncio.wait(
-                        [ele["task"] for ele in iterator_dict.values()], return_when=asyncio.FIRST_COMPLETED
-                    )
-                    for done_task in done_tasks:
-                        node_name, node_id, iterator = next((t["node_name"], t["node_id"], t["iterator"]) for it, t in iterator_dict.items() if t["task"] == done_task)
-                        
-                        try:
-                            response = done_task.result()
-                            if response:
-                                # IMPORTANT: save context before yield!
-                                current_ctx = context.get_current()
-                                _output_values, _parent = response["value"], response["node"]
-
-                                # TODO cqju: uncomment to unlock opentelemetry
-                                if OTEL_ENABLED:
-                                    span.set_attributes({
-                                        f'component_output.value.{response["node"].name}': json.dumps(_output_values),  
-                                    })
-                                # This yield to the final output
-                                yield {
-                                    "_timestamp": time.time(),
-                                    "value": _output_values,
-                                    "node": _parent,
-                                }
-                                context.attach(current_ctx)
-                            del response
-
-                        except StopAsyncIteration: # 
-                            self.logger.debug(":StopAsyncIteration:")
-                            del iterator_dict[iterator]
-
-                            _parent = self.graph.nodes[node_id]["_obj"]
-                            # FIXME 1009
-                            if isinstance(_parent.output_object_store[session_id], List):
-                                _most_recent_output_values = _parent.output_object_store[session_id][-1]["value"]  #   1009
-                            elif isinstance(_parent.output_object_store[session_id], Dict):
-                                _most_recent_output_values = _parent.output_object_store[session_id]["value"]  #   1009
-                            # TODO 1016
-                            if _parent.node_type == "Pipeline":
-                                _most_recent_output_values = decompose(_most_recent_output_values)
-                            else:
-                                pass
-
-                            if not _parent.is_end:
-                                self.logger.debug(f"{_parent.name} -> EMIT")
-                                # collect the infomation for children nodes
-                                _c_tasks_dict = self._collect_parent_tasks(
-                                    session_id=session_id,
-                                    output_values_internal=_most_recent_output_values,
-                                    parent=_parent,
-                                )
-                                for _, _asset in _c_tasks_dict.items():
-                                    iterator_dict.update({
-                                        _asset["iterator"]: {
-                                            "node_id": _asset["node_id"],
-                                            "node_name": _asset["node_name"],
-                                            "iterator": _asset["iterator"],
-                                            "task": make_as_task(_asset["iterator"])
-                                        }
-                                    })
-                        except Exception as exc:
-                            raise exc
-                        else:
-                            # The iterator hasn't exhausted or errored out.
-                            # Queue the next inspection.
-                            iterator_dict[iterator] = {
-                                "node_id": node_id,
-                                "node_name": node_name,
-                                "iterator": iterator,
-                                "task": make_as_task(iterator),
-                            }
-                # Finally, callback function here
-                _output_values = self._callback(session_id, _inputs)
-                
-                # TODO cqju: uncomment to unlock opentelemetry
-                if OTEL_ENABLED:
-                    span.set_attributes({
-                        "output.value": json.dumps(_output_values),  
-                    })
-                    span.end()
-
-                # Don't forget to detach or parent will remain the parent above this call stack
-                # FIXME cqju
-                # context.detach(token)  # ERROR ContextVar
-
-        except (BaseException, Exception) as err:
-            self.clean_object_store(session_id)
-            raise err
-        finally:
-            self.count_visited += 1  # TODO cqju
-
-    def _callback(self, session_id, _inputs):
+    def _callback(self, session_id):
         # after execution, self input object store should be cleaned
-        # self.input_object_store.pop(session_id, None)  # TODO LC: double check
+        self.input_object_store.pop(session_id, None)  # TODO LC: double check
 
         # collect from its included components
         _output_values = {}
@@ -432,3 +262,131 @@ class BasePipelineMixin(BaseConnectable):
         })
 
         return _output_values
+
+    async def event_on_execution(
+        self,
+        inputs: Dict,
+        session_id: str,
+        **kwargs
+    ) -> AsyncIterator:
+        """EXECUTION when the node is triggered."""
+        try:
+            assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
+            if inputs:
+                # TODO cqju: uncomment to unlock opentelemetry
+                if OTEL_ENABLED:
+                    span = opentelemetry_tracer._tracer.start_span(self.name)
+                    span.set_attributes({
+                        "input.value": json.dumps(inputs),  
+                    })
+                    # TODO: cqju remove for opentelemetry
+                    span.set_attributes({
+                        "openinference.span.kind": "CHAIN",  
+                    })
+                    # Creates a Context object with parent set as current span
+                    ctx = trace.set_span_in_context(span)
+                    # Set as the implicit current context
+                    token = context.attach(ctx)
+
+                root_nodes = [self.graph.nodes[_node_id]["_obj"] for _node_id in self.graph.head_nodes]
+                task_dict = self._collect_head_tasks(session_id, inputs, root_nodes)
+                # compile upon running
+                iterator_dict = {
+                    asset["iterator"]: {
+                        "node_id": asset["node_id"],
+                        "node_name": asset["node_name"],
+                        "iterator": asset["iterator"], 
+                        "task": make_as_task(asset["iterator"]),
+                    } for _, asset in task_dict.items()
+                }
+
+                while iterator_dict:
+                    done_tasks, pending = await wait(
+                        [ele["task"] for ele in iterator_dict.values()], return_when=FIRST_COMPLETED
+                    )
+                    for done_task in done_tasks:
+                        node_name, node_id, iterator = next((t["node_name"], t["node_id"], t["iterator"]) for it, t in iterator_dict.items() if t["task"] == done_task)
+                        
+                        try:
+                            response = done_task.result()
+                            if response:
+                                # IMPORTANT: save context before yield!
+                                current_ctx = context.get_current()
+                                _output_values: dict = response["value"]
+                                _parent = response["node"]
+                                # This yield to the final output
+                                yield {
+                                    "_timestamp": time.time(),
+                                    "value": _output_values,
+                                    "node": _parent,
+                                }
+                                # TODO cqju: uncomment to unlock opentelemetry
+                                if OTEL_ENABLED:
+                                    span.set_attributes({
+                                        f'component_output.value.{response["node"].name}': json.dumps(_output_values),  
+                                    })
+                                context.attach(current_ctx)
+                            del response
+
+                        except StopAsyncIteration: # 
+                            self.logger.debug(":StopAsyncIteration:")
+                            del iterator_dict[iterator]
+
+                            _parent = self.graph.nodes[node_id]["_obj"]
+                            # FIXME 1009
+                            if isinstance(_parent.output_object_store[session_id], List):
+                                _most_recent_output_values = _parent.output_object_store[session_id][-1]["value"]  #   1009
+                            elif isinstance(_parent.output_object_store[session_id], Dict):
+                                _most_recent_output_values = _parent.output_object_store[session_id]["value"]  #   1009
+                            # TODO 1016
+                            if _parent.node_type == "Pipeline":
+                                _most_recent_output_values = decompose_pipeline(_most_recent_output_values)
+                            else:
+                                pass
+
+                            if not _parent.is_end:
+                                self.logger.warning(f"{_parent.name} -> EMIT")
+                                # collect the infomation for children nodes
+                                _c_tasks_dict = self._collect_children_tasks(
+                                    session_id=session_id,
+                                    output_values_internal=_most_recent_output_values,
+                                    parent=_parent,
+                                )
+                                for _, _asset in _c_tasks_dict.items():
+                                    iterator_dict.update({
+                                        _asset["iterator"]: {
+                                            "node_id": _asset["node_id"],
+                                            "node_name": _asset["node_name"],
+                                            "iterator": _asset["iterator"],
+                                            "task": make_as_task(_asset["iterator"])
+                                        }
+                                    })
+                        except Exception as exc:
+                            self._error_callback(session_id, exc)
+                        else:
+                            # The iterator hasn't exhausted or errored out.
+                            # Queue the next inspection.
+                            iterator_dict[iterator] = {
+                                "node_id": node_id,
+                                "node_name": node_name,
+                                "iterator": iterator,
+                                "task": make_as_task(iterator),
+                            }
+                # Finally, callback function here
+                _output_values = self._callback(session_id)
+                
+                # TODO cqju: uncomment to unlock opentelemetry
+                if OTEL_ENABLED:
+                    span.set_attributes({
+                        "output.value": json.dumps(_output_values),  
+                    })
+                    span.end()
+
+                # Don't forget to detach or parent will remain the parent above this call stack
+                # FIXME cqju
+                # context.detach(token)  # ERROR ContextVar
+
+        except (BaseException, Exception) as exc:
+            self._error_callback(session_id, exc)
+        finally:
+            self.count_visited += 1  # TODO cqju

@@ -1,11 +1,13 @@
+from asyncio import get_event_loop
 from functools import wraps, partial
 from llmagpie.core.function import create_schema_from_function
 # typing
 from pydantic import BaseModel, create_model, Field
-from typing import Optional, Callable, Dict, Awaitable, Callable
+from typing import Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator
 from dataclasses import dataclass
-
 from deprecated import deprecated
+import nest_asyncio
+nest_asyncio.apply()  # IMPORTANT
 
 def conditional(run_func: Optional[Callable] = None, **types):
     # return type of conditional function must be boolean.
@@ -62,16 +64,45 @@ def socket_types(run_func: Optional[Callable] = None, **types):
 
         # TODO async function
         @wraps(run_func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args, **kwargs) -> Union[BaseModel, Dict, Generator]:
             # TODO 0926
             inputs = input_model(**kwargs)
-            res = run_func(*args, **inputs.model_dump())  # Note: need to take args as it includes `self`
+            # res = run_func(inputs.model_dump())
+
+            res = run_func(*args, **inputs.__dict__)  # TODO 1114
+            # res = run_func(*args, **inputs.model_dump())  # Note: need to take args as it includes `self`
+            
             if isinstance(res, Awaitable):
                 res = await res
-                if isinstance(res, tuple):
-                    res = {k: v for d in res for k, v in d.items()}
-            return output_model(**res if res else {})  # .model_dump()  # TODO: 0926: exclude_none=True
 
+            def _post_run(res: Union[Generator, AsyncGenerator, Dict, Tuple]):
+                # TODO 1112
+                def _marshal_iterable(res_iterable: Generator) -> Generator:
+                    for _res in res_iterable:
+                        yield output_model(**_res if _res else {}).model_dump(exclude_none=True)  # TODO: 0926: exclude_none=True
+
+                def _async_to_sync_marshal_iterable(async_res_iterable: AsyncGenerator) -> Generator:  # nest_asyncio
+                    loop = get_event_loop()
+                    while True:
+                        try:
+                            yield loop.run_until_complete(async_res_iterable.__anext__())
+                        except StopAsyncIteration:
+                            break 
+
+                if isinstance(res, Generator):
+                    return _marshal_iterable(res)
+                if isinstance(res, AsyncGenerator):
+                    return _async_to_sync_marshal_iterable(res)
+                if isinstance(res, Dict):
+                    return output_model(**res if res else {}).model_dump(exclude_none=True)
+                if isinstance(res, Tuple):
+                    return output_model(**{k:v for k, v in zip(output_model.model_fields.keys(), res)} if res else {}).model_dump(exclude_none=True)
+                try:
+                    return output_model(**{k:v for k, v in zip(output_model.model_fields.keys(), [res])} if res else {}).model_dump(exclude_none=True)
+                except:
+                    raise TypeError("Result type is wrong.")
+            
+            return _post_run(res)
         # set up searchable object
         setattr(wrapper, "_input_model", input_model)
         setattr(wrapper, "_output_model", output_model)

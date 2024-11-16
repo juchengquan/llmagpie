@@ -1,11 +1,10 @@
 import asyncio
 import time
-from jibberjabber.core.nodes import BaseNode, BaseServiceRetriever
-from jibberjabber.core.pipeline import MultiHeadPipeline
-from jibberjabber.core.utilities.wrapper import socket_types
+from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
+from llmagpie.core.pipeline import MultiHeadPipeline
+from llmagpie.core.utilities.wrapper import socket_types
 # typing
 from typing import List
-from app_instances._examples.aux_exec import AuxExecutor
 
 class EntryNode(BaseNode):
     @socket_types(entry_outputs=str)
@@ -53,4 +52,6 @@ if __name__ == "__main__":
         "A.inputs": "Hello"
     }
     
-    AuxExecutor(pipe, inputs)
+    response = pipe.invoke(inputs=inputs)
+    for ele in response:
+        print(ele)
