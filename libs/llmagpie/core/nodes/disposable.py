@@ -16,14 +16,14 @@ class BaseNodeDisposable(BaseModel):
         arbitrary_types_allowed = True
 
     connectable: Any
-    in_keys: Optional[List[str]] = None
-    out_keys: Optional[List[str]] = None
+    in_keys: List[str] = []
+    out_keys: List[str] = []
 
-    logger: Logger = None
+    logger: Logger
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.logger = get_or_create_logger(self.__class__.__name__)
+        logger = get_or_create_logger(self.__class__.__name__)
+        super().__init__(logger=logger, *args, **kwargs)
 
     def _check_keys_subset(self, _keys_mapped: list, _keys_full_list: list):
         try:
@@ -75,12 +75,10 @@ class BaseNodeDisposable(BaseModel):
             node_runnables = [node_runnables]
 
         for ele_node in node_runnables:
-
             if upstream:
                 upper, lower = ele_node, self
             else:
                 upper, lower = self, ele_node
-            
             assert len(upper.out_keys) == len(lower.in_keys), "The key mapping must be the same!"
             
             _from_node_to_node(upper, lower)

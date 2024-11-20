@@ -1,12 +1,13 @@
 from networkx import DiGraph, is_directed_acyclic_graph, recursive_simple_cycles, MultiDiGraph
 from deprecated import deprecated
-
+# typing
+from typing import Self
 
 class SingleDAG(DiGraph):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def validate(self) -> "type.Self":
+    def validate(self): #  -> "Self":
         self._validate_heads_and_tails()
         self._validate_nodes()
 

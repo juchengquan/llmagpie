@@ -17,11 +17,12 @@ from llmagpie.core.connectable import BaseConnectable
 # EXPERIMENTAL
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer
 # typing
-from typing import List, Dict, Union, Any, Awaitable, Set, Optional, Callable, Generator, AsyncGenerator
+from typing import List, Dict, Union, Any, Awaitable, Set, Optional, Callable, Generator, AsyncGenerator, Coroutine
+
 
 class BaseNode(BaseConnectable):
     class Config:
-        extra = "allow"
+        extra = "forbid"
 
     node_type: str = "Node"
 
@@ -81,14 +82,6 @@ class BaseNode(BaseConnectable):
         super().__init__(*args, **kwargs)
 
     def _validate(self):  # TODO
-        # Check in-degree and out-degree of nodes (on pipeline)
-        assert (self.pipeline.graph.in_degree(self._id) == 0 and self.is_start is True) \
-            or (self.pipeline.graph.in_degree(self._id) != 0 and self.is_start is not True), \
-            f"{self.__class__.__name__} Node In-degree is wrong."
-        assert (self.pipeline.graph.out_degree(self._id) == 0 and self.is_end is True) \
-            or (self.pipeline.graph.out_degree(self._id) != 0 and self.is_end is not True), \
-            f"{self.__class__.__name__} Node Out-degree is wrong."
-
         # Check input bound status
         if not self.is_start:
             assert set(self._input_schema_required["internal"]).issubset(set(self._input_keys_binded)) \
@@ -115,7 +108,7 @@ class BaseNode(BaseConnectable):
             raise exc
 
         try:
-            _output_values: Union[Awaitable, BaseModel, Generator] = self.async_call(**kwargs)  # cqju: overwrite in children
+            _output_values = self.async_call(**kwargs) # type: ignore
             if isawaitable(_output_values):
                 _output_values: dict = await _output_values
 

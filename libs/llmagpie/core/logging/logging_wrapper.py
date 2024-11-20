@@ -1,5 +1,5 @@
 from functools import wraps
-from inspect import getargspec, isawaitable
+from inspect import getfullargspec, isawaitable
 from fastapi import HTTPException
 
 from .logging import get_or_create_logger
@@ -13,7 +13,7 @@ def log_output(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
         try:
-            is_method = getargspec(func)[0][0] == 'self'
+            is_method = getfullargspec(func)[0][0] == 'self'
         except Exception:
             is_method = False
 

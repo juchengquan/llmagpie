@@ -7,7 +7,7 @@ from llmagpie.core.utilities.prometheus import make_metrics_app
 
 from ._base import BasePipelineMixin
 # typing
-from typing import Dict
+from typing import Dict, Self
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
@@ -19,7 +19,7 @@ class QueryPipelineWithFastAPI(BasePipelineMixin):
 
     apscheduler: BackgroundScheduler = Field(default_factory=get_apscheduler)
 
-    def compile(self) -> "type.Self":
+    def compile(self) -> "Self":
         """compile pipeline.
         """
         self.graph.validate()

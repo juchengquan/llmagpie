@@ -1,6 +1,9 @@
 import chromadb
 from pydantic import BaseModel
-from typing import List, Dict, Optional, Literal, Union
+from chromadb.api import ClientAPI
+from chromadb.config import Settings
+# typing
+from typing import List, Dict, Optional, Literal, Union, cast
 
 
 class ChromaDocument(BaseModel):
@@ -14,7 +17,7 @@ class ChromaDocument(BaseModel):
 
 
 class ChromaDBStore:
-    client: chromadb.ClientAPI
+    client: ClientAPI
     mode: Literal["local", "client"]
     host: Optional[str] = None
     port: Optional[str] = None
@@ -24,12 +27,12 @@ class ChromaDBStore:
         self,
         persistent_path: Optional[str] = None,
         host: str = "localhost",
-        port: int = "9999",
+        port: Union[int, str] = "9999",
     ):
         if persistent_path is not None:
             self.client = chromadb.PersistentClient(
                 path=persistent_path,
-                settings=chromadb.Settings(
+                settings=Settings(
                     anonymized_telemetry=False,
                     allow_reset=True),
             )
@@ -39,13 +42,13 @@ class ChromaDBStore:
         elif (host is not None) or (port is not None):
             self.client = chromadb.HttpClient(
                 host=host,
-                port=port,
-                settings=chromadb.Settings(
+                port=cast(int, port),
+                settings=Settings(
                     anonymized_telemetry=False,
                     allow_reset=True),
             )
             self.host = host
-            self.port = port
+            self.port = cast(str, port)
             self.mode = "client"
 
     def get_collection(self, collection_name: str, create_if_not_exist: bool = False):

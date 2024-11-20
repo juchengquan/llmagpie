@@ -20,8 +20,9 @@ from llmagpie.core.logging import get_or_create_logger
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
 
 from typing import (
-    AsyncIterable, AsyncIterator, Collection, TypeVar, Any,
-    Sequence, Dict, Union, Optional, List, Callable
+    AsyncGenerator, Collection, TypeVar, Any,
+    Sequence, Dict, Union, Optional, List, Callable,
+    Self
 )
 
 from ._aux import make_as_task, decompose_pipeline
@@ -41,7 +42,7 @@ class BasePipelineMixin(BaseConnectable):
         super().__init__(*args, **kwargs)
         self.add_nodes(nodes)
 
-    def compile(self, *args, **kwargs) -> "type.Self":
+    def compile(self, *args, **kwargs) -> "Self":
         # CQJU FIXME 1009
         self._validate()
         self.graph.validate()
@@ -106,8 +107,8 @@ class BasePipelineMixin(BaseConnectable):
         self,
         src_node: Union[BaseNode, BaseNodeDisposable],
         dest_node: Union[BaseNode, BaseNodeDisposable],
-        src_key: Union[List[str], str] = None,
-        dest_key: Union[List[str], str] = None
+        src_key: Optional[Union[List[str], str]] = None,
+        dest_key: Optional[Union[List[str], str]] = None
     ):
         """Add edge.
         """
@@ -164,7 +165,7 @@ class BasePipelineMixin(BaseConnectable):
                 }
                 _inputs = _child.precheck(session_id=session_id, inputs=_inputs)
                 if _inputs:
-                    _iterator_target: AsyncIterator = _child.event_on_execution(
+                    _iterator_target: AsyncGenerator = _child.event_on_execution(
                         session_id=session_id,
                         inputs=_inputs,
                     )
@@ -183,7 +184,7 @@ class BasePipelineMixin(BaseConnectable):
     def _collect_children_tasks(
         self,
         session_id: str,
-        output_values_internal: Optional[BaseModel, Dict],
+        output_values_internal: Dict,
         parent: BaseConnectable,
         ):
         try:
@@ -268,7 +269,7 @@ class BasePipelineMixin(BaseConnectable):
         inputs: Dict,
         session_id: str,
         **kwargs
-    ) -> AsyncIterator:
+    ) -> AsyncGenerator:
         """EXECUTION when the node is triggered."""
         try:
             assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."

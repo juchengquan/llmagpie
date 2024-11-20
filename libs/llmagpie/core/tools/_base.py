@@ -3,8 +3,7 @@ from asyncio import get_event_loop
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, Field
 from inspect import getfullargspec, iscoroutinefunction
-from functools import partial
-from typing import Type, Literal, Any, Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator
+from typing import Type, Literal, Any, Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator, Annotated, get_origin
 
 from llmagpie.core.function import create_schema_from_function
 
@@ -25,9 +24,9 @@ class BaseTool(BaseModel, ABC):
     """The schema for the arguments that the tool accepts."""
     return_schema: Type[Any]
     """The schema for the arguments that the tool returns."""
-    function: Optional[Callable] = None
+    function: Callable
     """The function that will be executed when the tool is called."""
-    function_type: Optional[Literal["sync", "async"]] = None
+    function_type: Literal["sync", "async"]
     # async_function: Optional[Awaitable] = None
     """The async function that will be executed when the tool is called."""
 
@@ -43,7 +42,7 @@ class BaseTool(BaseModel, ABC):
         return tool_schema
 
 class Tool(BaseTool):
-    def _post_run(self, res: Union[Generator, AsyncGenerator, Dict, Tuple]):
+    def _post_run(self, res: Union[Generator, AsyncGenerator, Dict, Tuple, Any]):  # TODO
         output_model = self.return_schema
         
         def _marshal_iterable(res_iterable: Generator) -> Generator:
@@ -75,27 +74,27 @@ class Tool(BaseTool):
         except:
             raise TypeError("Result type is wrong.")
         
-    def run(self, input):
-        input = self.args_schema(**input).model_dump()
+    def run(self, input: dict):
+        _input: dict = self.args_schema(**input).model_dump()
         
         if self.function_type == "sync":
-            res = self.function(**input)
+            res = self.function(**_input)
         else:
-            res = run_async_as_sync( self.function, **input)
+            res = run_async_as_sync( self.function, **_input)
+            
         return self._post_run(res)
 
 
-    async def async_run(self, input):
-        input = self.args_schema(**input).model_dump()
+    async def async_run(self, input: dict):
+        _input: dict = self.args_schema(**input).model_dump()
         
         if self.function_type == "sync":
-            res = self.function(**input)
+            res = self.function(**_input)
         else:
-            res = await self.function(**input)
+            res = await self.function(**_input)
         
         return self._post_run(res)
             
-
 class _SchemaConfig:
     extra: Any = "forbid"
     arbitrary_types_allowed: bool = True
@@ -105,7 +104,7 @@ class _SchemaConfig:
         for prop in schema.get('properties', {}).values():
             prop.pop('title', None)
 
-def tool(func: Union[Callable, Awaitable] = None, name: str = None, **types):
+def tool(func: Optional[Union[Callable, Awaitable]] = None, name: Optional[str] = None, **types):
     def _make_with_name(_name) -> Callable:
         def _make_tool(func) -> BaseTool:
             args = getfullargspec(func)
@@ -122,18 +121,18 @@ def tool(func: Union[Callable, Awaitable] = None, name: str = None, **types):
                     p_description = p_type.__metadata__[0]
                     p_type = p_type.__origin__
 
-                p_field = Field(default=None, required=True, description=p_description)
+                p_field = Field(default=None, description=p_description)
             
                 fields[p_name] = (p_type, p_field)
             # _schema = {_n: (_t, Field(default=None, required=True)) for _n, _t in types.items()}
-            return_schema = create_model(func.__name__ + "_Output", **fields, __config__=_SchemaConfig)
+            return_schema = create_model(func.__name__ + "_Output", **fields, __config__=_SchemaConfig)  # type: ignore
 
             return Tool(
                 name=str(name) if name else func.__name__,
                 description=func.__doc__,
                 function=func,
                 function_type="async" if iscoroutinefunction(func) else "sync",
-                args_schema=create_schema_from_function(func),
+                args_schema=create_schema_from_function(func),  # type: ignore
                 return_schema=return_schema,
             )
         return _make_tool

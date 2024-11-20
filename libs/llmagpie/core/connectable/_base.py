@@ -12,7 +12,7 @@ from llmagpie.core.dag import SingleDAG
 from llmagpie.core.logging import get_or_create_logger
 # typing
 from llmagpie.core.nodes.disposable import BaseNodeDisposable
-from typing import List, Dict, Union, Any, Awaitable, Set, Optional
+from typing import List, Dict, Union, Any, Awaitable, Set, Optional, Generator, Callable, AsyncGenerator, cast
 from abc import abstractmethod
 
 
@@ -22,12 +22,13 @@ class _MetaFoo(ModelMetaclass):
         """class_name"""
         return self.__class__.__name__
 
+
 class BaseConnectable(BaseModel, metaclass=_MetaFoo):
     class Config:
         extra = "forbid"
         arbitrary_types_allowed = True
 
-    logger: Logger = None
+    logger: Logger
     name: str = Field()
 
     node_type: str
@@ -42,7 +43,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
 
     input_object_store: Dict[str, Dict[str, Dict]] = Field(default_factory=dict, description="Input object store that saves the lastest info from parent nodes (multiple sources are allowed).")
     history_object_store: Dict[str, Dict[str, List[Dict]]] = Field(default_factory=dict, description="Input object store that saves the input history of pipelines and nodes.")
-    output_object_store: Dict[str, Dict[str, Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
+    output_object_store: Dict[str, List[Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
     # PRIVATE
     _input_keys_binded: Set[str] = set()
     _input_keys_nodes_map: Dict[str, str] = {}
@@ -52,8 +53,8 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
     _output_schema_all: Dict = PrivateAttr(default_factory=dict)
 
     # TODO: condition function
-    cond_func: Callable = None
-    inputs_to_cond: Dict = None
+    cond_func: Optional[Callable] = None
+    inputs_to_cond: Optional[Dict] = None
     # LOOP
     iteration_counter: Dict = Field(default_factory=dict)
     max_iteration_limit: int = Field(default=10)
@@ -62,8 +63,10 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
     _max_count_visited = 10
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.logger = get_or_create_logger(self.__class__.__name__)
+        logger = get_or_create_logger(self.__class__.__name__)
+        super().__init__(
+            logger=logger,
+            *args, **kwargs)
 
     def __lshift__(self, keys: Union[str, List[str]]):
         if isinstance(keys, str):
@@ -98,7 +101,11 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         raise NotImplementedError
 
     @abstractmethod
-    async def event_on_execution(self):
+    async def event_on_execution(self,
+        inputs: Optional[Dict],
+        session_id: str,
+        **kwargs
+    ) -> AsyncGenerator:
         raise NotImplementedError
 
     def _error_callback(self, session_id: str, exc: Union[Exception, BaseException]):
@@ -110,8 +117,9 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         """"""
         try:
             if hasattr(self, "graph"):
-                for _id in self.graph.nodes:
-                    _node = self.graph.nodes[_id]["_obj"]
+                graph = getattr(self, "graph")
+                for _id in graph.nodes:
+                    _node = graph.nodes[_id]["_obj"]
                     _node.clean_object_store(session_id)
                 
             # clean self
@@ -128,7 +136,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
     def precheck(
         self,
         session_id: str,
-        inputs: Dict = None,
+        inputs: Optional[Dict] = None,
         **kwargs
     ) -> Union[Dict, None]:
         try:
@@ -169,22 +177,25 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
     def invoke(
         self,
         inputs: Dict,
-        session_id: str = None,
+        session_id: Optional[str] = None,
         **kwargs
     )-> Union[Generator[Dict], Dict]:
+        session_id = uuid.uuid4().hex if not session_id else session_id
+        
         try:
             if self.node_type == "Pipeline":
-                assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
-            session_id = uuid.uuid4().hex if not session_id else session_id
+                assert getattr(self, "is_compiled", None), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
             _inputs = self.precheck(session_id, inputs)
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
 
         try:
-            async_result: AsyncGenerator = self.event_on_execution(
-                inputs=_inputs,
-                session_id=session_id,
-                **kwargs
+            async_result = cast(AsyncGenerator,
+                self.event_on_execution(
+                    inputs=_inputs,
+                    session_id=session_id,
+                    **kwargs
+                )
             )
 
             loop = asyncio.get_event_loop()
@@ -201,13 +212,14 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
     async def async_invoke(
         self,
         inputs: Dict,
-        session_id: str = None,
+        session_id: Optional[str] = None,
         **kwargs
-    ) -> AsyncIterator:
+    ) -> AsyncGenerator:
+        session_id = uuid.uuid4().hex if not session_id else session_id
+        
         try:
             if self.node_type == "Pipeline":
-                assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
-            session_id = uuid.uuid4().hex if not session_id else session_id
+                assert getattr(self, "is_compiled"), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
             _inputs = self.precheck(session_id, inputs)
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
@@ -218,7 +230,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
                 session_id=session_id,
                 **kwargs
             )
-            async for res in async_result:
+            async for res in cast(AsyncGenerator, async_result):
                 yield res
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
@@ -262,7 +274,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         ]
         return results
 
-    def _flatten_history_object_store(self, session_id) -> Dict[str, List[Dict]]:
+    def _flatten_history_object_store(self, session_id) -> Dict[str, Dict]:
         res = {
             session_id: {
                 ".".join(_key.split('.')[1:]): _value for _key, _value in self.history_object_store.get(session_id, {}).items()

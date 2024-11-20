@@ -1,11 +1,11 @@
-import asyncio
-import uuid
-import time
+# import asyncio
+# import uuid
+# import time
 from inspect import getfullargspec, signature, _empty
 from pydantic import BaseModel, Field, create_model
-from pydantic._internal._model_construction import ModelMetaclass
-from functools import wraps
-from asyncio import create_task
+# from pydantic._internal._model_construction import ModelMetaclass
+# from functools import wraps
+# from asyncio import create_task
 from typing import Callable, Any, cast, Type, Dict, Union, Annotated, get_origin
 
 
@@ -64,8 +64,8 @@ def create_schema_from_function(
             p_field = Field(description=p_description)
         else:
             # Field with pydantic.Field as default value
-            p_field = Field(default=cast(p_type, p_default), description=p_description)
+            p_field = Field(default=p_default, description=p_description)
     
         fields[p_name] = (p_type, p_field)
 
-    return create_model(function_name, **fields, __config__=_SchemaConfig)
+    return create_model(function_name, **fields, __config__=_SchemaConfig)  # type: ignore

@@ -7,11 +7,11 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcess
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 # 
-from typing import Callable, Dict, Any, Optional
 from inspect import BoundArguments, Parameter, signature, iscoroutinefunction
 from opentelemetry.trace.status import Status, StatusCode
+from functools import partial
 # typing
-from typing import Union
+from typing import Union, Callable, Dict, Any, Optional, cast
 from pydantic import BaseModel
 from pydantic._internal._model_construction import ModelMetaclass
 
@@ -94,7 +94,7 @@ class WrapDecorator:
                     response = func(*args, **kwargs)
                     # TODO cqju
                     if isinstance(response, Union[ModelMetaclass, BaseModel]):
-                        response = response.model_dump()
+                        response = cast(BaseModel, response).model_dump()
                     span.set_attributes({
                         "output.value": json.dumps(response, default=str, ensure_ascii=False),  
                     })
@@ -126,7 +126,7 @@ class WrapDecorator:
                     response = await func(*args, **kwargs)
                     # TODO cqju
                     if isinstance(response, Union[ModelMetaclass, BaseModel]):
-                        response = response.model_dump()
+                        response = cast(BaseModel, response).model_dump()
                     span.set_attributes({
                         "output.value": json.dumps(response, default=str, ensure_ascii=False), 
                     })
@@ -138,11 +138,13 @@ class WrapDecorator:
             return response
         
         if iscoroutinefunction(func):
-            return async_wrapper(func)
-        return wrapper(func)
+            return async_wrapper(func)  # type: ignore
+        return wrapper(func)  # type: ignore
 
 
 class EmptyWrapDecorator:
+    _tracer: Any = None
+    
     def __call__(self, func=None):
         if func is None:
             return partial(self.__call__)
@@ -164,8 +166,8 @@ class EmptyWrapDecorator:
                 raise exc
 
         if iscoroutinefunction(func):
-            return async_wrapper(func)
-        return wrapper(func)
+            return async_wrapper(func)  # type: ignore
+        return wrapper(func)  # type: ignore
 
 OTEL_ENABLED: bool = False
 if os.getenv("OTEL_COLLECTOR_ENDPOINT"):

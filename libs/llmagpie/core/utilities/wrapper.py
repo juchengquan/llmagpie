@@ -9,6 +9,7 @@ from deprecated import deprecated
 import nest_asyncio
 nest_asyncio.apply()  # IMPORTANT
 
+
 def conditional(run_func: Optional[Callable] = None, **types):
     # return type of conditional function must be boolean.
     def _decorator(run_func):
@@ -23,7 +24,7 @@ def conditional(run_func: Optional[Callable] = None, **types):
         @wraps(run_func)
         def wrapper(*args, **kwargs):
             # TODO 0926
-            inputs = input_model(**kwargs)
+            inputs = input_model(**kwargs)  # type: ignore
             res = run_func(inputs.model_dump())
             # if isinstance(res, Awaitable):
             #     res = await res
@@ -59,14 +60,14 @@ def socket_types(run_func: Optional[Callable] = None, **types):
         
         input_model = create_schema_from_function(run_func, in_class=True)   # TODO: in_class
 
-        _schema = {_n: (_t, Field(default=None, required=True)) for _n, _t in types.items()}
-        output_model = create_model(run_func.__name__ + "_Output", **_schema)
+        _schema = {_n: (_t, Field(default=None)) for _n, _t in types.items()}
+        output_model = create_model(run_func.__name__ + "_Output", **_schema)  # type: ignore
 
         # TODO async function
         @wraps(run_func)
         async def wrapper(*args, **kwargs) -> Union[BaseModel, Dict, Generator]:
             # TODO 0926
-            inputs = input_model(**kwargs)
+            inputs = input_model(**kwargs)  # type: ignore
             # res = run_func(inputs.model_dump())
 
             res = run_func(*args, **inputs.__dict__)  # TODO 1114
@@ -116,7 +117,7 @@ def socket_types(run_func: Optional[Callable] = None, **types):
 
 
 @deprecated(reason="Not used")
-def convert_as_func_w_internal_variables(func: Callable = None, mapping: Dict = None):
+def convert_as_func_w_internal_variables(func: Optional[Callable] = None, mapping: Dict = {}):
     """Convert function with internal variables.
     """
     if func is None:
