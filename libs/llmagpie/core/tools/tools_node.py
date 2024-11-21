@@ -1,13 +1,17 @@
-from typing import List, Dict, Optional, Union
-from concurrent.futures import ThreadPoolExecutor
-import uuid
 # from collections import OrderedDict
 import json
+from uuid import uuid4
+from typing import List, Dict, Optional, Union
+from concurrent.futures import ThreadPoolExecutor
 from llmagpie.core.nodes import BaseNode
+from pydantic import BaseModel
+from llmagpie.core.utilities.wrapper import socket_types
 # typing
 from ._base import Tool
 
+
 class ToolsNode(BaseNode):
+# class ToolsNode(BaseModel):
     class Config:
         extra = "forbid"
         arbitrary_types_allowed: bool = True
@@ -35,12 +39,13 @@ class ToolsNode(BaseNode):
     def __str__(self):
         return self.__repr__()
 
+    @socket_types(tool_calls=list)
     async def async_call(self, tool_call_list: List[Dict]):
         with ThreadPoolExecutor(max_workers=4) as executor:
             for _i, ele in enumerate(tool_call_list):
                 if ele.get("function", None):
                     function_args = ele["function"]
-                    ele["id"] = ele.get("id", uuid.uuid4().hex)
+                    ele["id"] = ele.get("id", uuid4().hex)
                     
                     tool = self.tools_with_mapping[function_args["name"]]
 

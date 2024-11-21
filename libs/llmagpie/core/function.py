@@ -18,6 +18,37 @@ class _SchemaConfig:
         for prop in schema.get('properties', {}).values():
             prop.pop('title', None)
 
+def create_schema_from_types(
+    name: str,
+    types: Dict
+):
+    """Create schema from types.
+
+    Args:
+        types (Dict): Types dictionary
+
+    Raises:
+        ValueError
+
+    Returns:
+        BaseModel
+    """
+    fields: Dict = {}
+    for (idx, p_name), p_val in zip(enumerate(types.keys()), types.values()):
+        # if in_class and idx == 0:
+        #     continue
+        p_type = p_val
+        p_description = None
+        if get_origin(p_type) == Annotated:
+            p_description = p_type.__metadata__[0]
+            p_type = p_type.__origin__
+
+        p_field = Field(default=None, description=p_description)
+    
+        fields[p_name] = (p_type, p_field)
+    return_schema = create_model(name + "_Output", **fields, __config__=_SchemaConfig)  # type: ignore
+    return return_schema
+
 
 def create_schema_from_function(
     function: Callable,

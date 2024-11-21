@@ -1,6 +1,7 @@
-from ._base import BaseConnectable
+from ._base import BaseConnectable, FunctionSchema
 
 
 __all__ = [
-    "BaseConnectable"
+    "BaseConnectable",
+    "FunctionSchema"
 ]

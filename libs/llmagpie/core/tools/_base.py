@@ -5,7 +5,7 @@ from pydantic import BaseModel, create_model, Field
 from inspect import getfullargspec, iscoroutinefunction
 from typing import Type, Literal, Any, Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator, Annotated, get_origin
 
-from llmagpie.core.function import create_schema_from_function
+from llmagpie.core.function import create_schema_from_function, create_schema_from_types
 
 
 class BaseTool(BaseModel, ABC):
@@ -94,15 +94,6 @@ class Tool(BaseTool):
             res = await self.function(**_input)
         
         return self._post_run(res)
-            
-class _SchemaConfig:
-    extra: Any = "forbid"
-    arbitrary_types_allowed: bool = True
-
-    @staticmethod
-    def json_schema_extra(schema: dict[str, Any], model) -> None:
-        for prop in schema.get('properties', {}).values():
-            prop.pop('title', None)
 
 def tool(func: Optional[Union[Callable, Awaitable]] = None, name: Optional[str] = None, **types):
     def _make_with_name(_name) -> Callable:
@@ -111,29 +102,13 @@ def tool(func: Optional[Union[Callable, Awaitable]] = None, name: Optional[str] 
             if args.varargs or args.varkw:
                 raise ValueError("arg of kwargs are not allowed in function definition.")
 
-            fields: Dict = {}
-            for (idx, p_name), p_val in zip(enumerate(types.keys()), types.values()):
-                # if in_class and idx == 0:
-                #     continue
-                p_type = p_val
-                p_description = None
-                if get_origin(p_type) == Annotated:
-                    p_description = p_type.__metadata__[0]
-                    p_type = p_type.__origin__
-
-                p_field = Field(default=None, description=p_description)
-            
-                fields[p_name] = (p_type, p_field)
-            # _schema = {_n: (_t, Field(default=None, required=True)) for _n, _t in types.items()}
-            return_schema = create_model(func.__name__ + "_Output", **fields, __config__=_SchemaConfig)  # type: ignore
-
             return Tool(
                 name=str(name) if name else func.__name__,
                 description=func.__doc__,
                 function=func,
                 function_type="async" if iscoroutinefunction(func) else "sync",
                 args_schema=create_schema_from_function(func),  # type: ignore
-                return_schema=return_schema,
+                return_schema=create_schema_from_types(func.__name__, types),
             )
         return _make_tool
 

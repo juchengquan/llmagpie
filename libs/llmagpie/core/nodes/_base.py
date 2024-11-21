@@ -11,8 +11,7 @@ from pydantic import BaseModel, Field, PrivateAttr, model_validator, computed_fi
 from pydantic._internal._model_construction import ModelMetaclass
 
 from llmagpie.core.nodes.disposable import BaseNodeDisposable
-from llmagpie.core.dag import SingleDAG
-from llmagpie.core.connectable import BaseConnectable
+from llmagpie.core.connectable import BaseConnectable, FunctionSchema
 
 # EXPERIMENTAL
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer
@@ -24,69 +23,47 @@ class BaseNode(BaseConnectable):
     class Config:
         extra = "forbid"
 
-    node_type: str = "Node"
+    connectable_type: str = "Node"
+    is_binded: bool = False
 
-    @computed_field
-    @property
-    def _input_schema_required(self) -> Dict:
-        """"""
-        _prop: List = self.async_call._input_model.schema()["required"]
-        return {
-            "internal": _prop,
-            "external": [
-                f"{self.name}.{k}" for k in _prop
-            ]
-        }
-
-    @computed_field
-    @property
-    def _input_schema_all(self) -> Dict:
-        """"""
-        _prop = self.async_call._input_model.schema()["properties"]
-        return {
-            "internal": _prop,
-            "external": {
-                f"{self.name}.{k}": v for k, v in _prop.items()
-            }
-        }
-
-    @computed_field
-    @property
-    def _output_schema_all(self) -> Dict:
-        """"""
-        _prop = self.async_call._output_model.schema()["properties"]
-        return {
-            "internal": _prop,
-            "external": {
-                f"{self.name}.{k}": v for k, v in _prop.items()
-            }
-        }
+    def _validate(self):  # TODO: may need to change function name
+        assert not self.is_binded, "The node has been binded to another pipeline."
+        self.is_binded = True
         
-    @computed_field
-    @property
-    def _output_schema_required(self) -> Dict:
-        """"""
-        _prop = self.async_call._output_model.schema()["required"]
-        return {
-            "internal": _prop,
-            "external": [
-                f"{self.name}.{k}" for k in _prop
-            ]
-        }
-
-    @model_validator(mode="after")
-    def validate_output_keys(self):
-        return self
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def _validate(self):  # TODO
         # Check input bound status
         if not self.is_start:
-            assert set(self._input_schema_required["internal"]).issubset(set(self._input_keys_binded)) \
-                and set(self._input_keys_binded).issubset(set(self._input_schema_all["internal"])), \
+            assert set(self.func_schema.internal.input.required).issubset(set(self._input_keys_binded)) \
+                and set(self._input_keys_binded).issubset(set(self.func_schema.internal.input.all)), \
                 "Required inputs parameters are not fully bound. Or unknown keys bound."
+    
+    @model_validator(mode="after")
+    def _contruct_schemas(self):
+        self.func_schema = FunctionSchema(**{
+            "internal": {
+                "input": {
+                    "required": self.async_call._input_model.schema()["required"],
+                    "all": self.async_call._input_model.schema()["properties"],
+                },
+                "output": {
+                    "required": [],
+                    "all": self.async_call._output_model.schema()["properties"],
+                },
+            },
+            "external": {
+                "input": {
+                    "required": [],
+                    "all": {},
+                },
+                "output": {
+                    "required": [],
+                    "all": {},
+                },
+            },
+        })
+        return self
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
     
     # CHILDREN PROCESS
     @abstractmethod
@@ -98,11 +75,11 @@ class BaseNode(BaseConnectable):
     async def _execute(self, **kwargs):
         try:
             # parameter checking
-            if set(self._input_schema_all["internal"]) != set(kwargs.keys()):
-                assert set(self._input_schema_required["internal"]).issubset(set(kwargs.keys())), \
-                    f'{self.__class__.__name__}:{self.name}: Required input parameters missing. {set(self._input_schema_required["internal"])} does not align with the input keys: {set(kwargs.keys())}'
+            if set(self.func_schema.internal.input.all) != set(kwargs.keys()):
+                assert set(self.func_schema.internal.input.required).issubset(set(kwargs.keys())), \
+                    f'{self.__class__.__name__}:{self.name}: Required input parameters missing. {set(self.func_schema.internal.input.required)} does not align with the input keys: {set(kwargs.keys())}'
 
-                self.logger.warning(f'{self.__class__.__name__}:{self.name}: Input pamatemeters {set(kwargs.keys())} does not align with the keys: {set(self._input_schema_all["internal"])}\
+                self.logger.warning(f'{self.__class__.__name__}:{self.name}: Input pamatemeters {set(kwargs.keys())} does not align with the keys: {set(self.func_schema.internal.input.all)} \
                     -> checking required parameters')
         except AssertionError as exc:
             raise exc
@@ -121,18 +98,12 @@ class BaseNode(BaseConnectable):
 
     def _callback(self, session_id, _output_values):
         # after execution, self input object store should be cleaned
-        self.input_object_store.pop(session_id, None)  # TODO LC: double check
+        self.input_state.pop(session_id, None)  # TODO LC: double check
 
-        # collect from its included components
-        # _output_values = {}
-        # for _node_id in self.graph.nodes:
-        #     node = self.graph.nodes[_node_id]["_obj"]
-        #     _output_values[node.name] = node.output_object_store.get(session_id, None)
-
-        self.output_object_store[session_id] = self.output_object_store.get(session_id, [])
-        self.output_object_store[session_id].append({
+        self.output_state[session_id] = self.output_state.get(session_id, [])
+        self.output_state[session_id].append({
             "_timestamp": time.time(),
-            "_type": self.node_type,
+            "_type": self.connectable_type,
             "value": _output_values
         })
 
@@ -167,7 +138,7 @@ class BaseNode(BaseConnectable):
                 for _v in _output_values:
                     yield {
                         "_timestamp": time.time(),
-                        "_type": self.node_type,
+                        "_type": self.connectable_type,
                         "value": _v,
                         "node": self,
                     }
@@ -176,7 +147,7 @@ class BaseNode(BaseConnectable):
             else: # isinstance(_output_values, Dict)
                 yield {
                     "_timestamp": time.time(),
-                    "_type": self.node_type,
+                    "_type": self.connectable_type,
                     "value": _output_values,
                     "node": self,
                 }

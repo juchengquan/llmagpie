@@ -8,13 +8,12 @@ from logging import Logger
 from pydantic import Field, BaseModel, PrivateAttr, computed_field
 from pydantic._internal._model_construction import ModelMetaclass
 
-from llmagpie.core.dag import SingleDAG
 from llmagpie.core.logging import get_or_create_logger
 # typing
 from llmagpie.core.nodes.disposable import BaseNodeDisposable
 from typing import List, Dict, Union, Any, Awaitable, Set, Optional, Generator, Callable, AsyncGenerator, cast
 from abc import abstractmethod
-
+from deprecated import deprecated
 
 class _MetaFoo(ModelMetaclass):
     @property
@@ -22,37 +21,50 @@ class _MetaFoo(ModelMetaclass):
         """class_name"""
         return self.__class__.__name__
 
+class BaseStateStore(BaseModel):
+    """This class stores the state with upstream and downstream contexts.
+    """
+    input_state: Dict[str, Dict[str, Dict]] = Field(default_factory=dict, description="Input object store that saves the lastest info from parent nodes (multiple sources are allowed).")
+    history_state: Dict[str, Dict[str, List[Dict]]] = Field(default_factory=dict, description="Input object store that saves the input history of pipelines and nodes.")
+    output_state: Dict[str, List[Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
+      
+# Function Schema DataClass
+class _InterChangableInferface(BaseModel):
+    required: List = []
+    all: Dict = {}
+    
+class _FunctionSchema(BaseModel):
+    input: _InterChangableInferface = Field(default_factory=_InterChangableInferface)
+    output: _InterChangableInferface = Field(default_factory=_InterChangableInferface)
+    
+class FunctionSchema(BaseModel):
+    internal: _FunctionSchema = Field(default_factory=_FunctionSchema)
+    external: _FunctionSchema = Field(default_factory=_FunctionSchema)
 
-class BaseConnectable(BaseModel, metaclass=_MetaFoo):
+
+class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
     class Config:
         extra = "forbid"
         arbitrary_types_allowed = True
-
-    logger: Logger
+    
+    _id: str = PrivateAttr(default_factory=lambda: uuid.uuid4().hex)
     name: str = Field()
-
-    node_type: str
-
+    connectable_type: str = Field()
+    logger: Logger = Field(default_factory=lambda: get_or_create_logger(logger_name="default"))
     is_start: bool = Field(default=True, description="Indicator that if the component is a start node.")
     is_end: bool = Field(default=True, description="Indicator that if the component is an end node.")
 
-    pipeline: Optional[Any] = None  # TODO: This is prepration for connectable
-
-    _id: str = PrivateAttr(default_factory=lambda: uuid.uuid4().hex)
-    # graph: Optional[SingleDAG] = None
-
-    input_object_store: Dict[str, Dict[str, Dict]] = Field(default_factory=dict, description="Input object store that saves the lastest info from parent nodes (multiple sources are allowed).")
-    history_object_store: Dict[str, Dict[str, List[Dict]]] = Field(default_factory=dict, description="Input object store that saves the input history of pipelines and nodes.")
-    output_object_store: Dict[str, List[Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
-    # PRIVATE
     _input_keys_binded: Set[str] = set()
+    # input binded keys
     _input_keys_nodes_map: Dict[str, str] = {}
+    # input keys of nodes map
     
-    _input_schema_all: Dict = PrivateAttr(default_factory=dict)
-    _input_schema_required: Dict = PrivateAttr(default_factory=dict)
-    _output_schema_all: Dict = PrivateAttr(default_factory=dict)
+    pipeline: Optional[Any] = None  # TODO: This is prepration for all connectables
 
-    # TODO: condition function
+    # PRIVATE
+    func_schema: FunctionSchema = Field(default_factory=FunctionSchema)
+    
+    # condition function
     cond_func: Optional[Callable] = None
     inputs_to_cond: Optional[Dict] = None
     # LOOP
@@ -63,10 +75,8 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
     _max_count_visited = 10
 
     def __init__(self, *args, **kwargs):
-        logger = get_or_create_logger(self.__class__.__name__)
-        super().__init__(
-            logger=logger,
-            *args, **kwargs)
+        kwargs["logger"] = get_or_create_logger(self.__class__.__name__)
+        super().__init__(*args, **kwargs)
 
     def __lshift__(self, keys: Union[str, List[str]]):
         if isinstance(keys, str):
@@ -109,21 +119,21 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         raise NotImplementedError
 
     def _error_callback(self, session_id: str, exc: Union[Exception, BaseException]):
-        self.clean_object_store(session_id)
+        self.clean_states(session_id)
         self.logger.error(f"Error on {self.name} -> {exc}")
         raise exc
 
-    def clean_object_store(self, session_id: str):
+    def clean_states(self, session_id: str):
         """"""
         try:
             if hasattr(self, "graph"):
                 graph = getattr(self, "graph")
                 for _id in graph.nodes:
                     _node = graph.nodes[_id]["_obj"]
-                    _node.clean_object_store(session_id)
+                    _node.clean_states(session_id)
                 
             # clean self
-            for object_store_name in ["input_object_store", "history_object_store", "output_object_store"]:
+            for object_store_name in ["input_state", "history_state", "output_state"]:
                 if hasattr(self, object_store_name):
                     self.logger.debug(f"{self.name} - {object_store_name}: BEFORE")
                     self.logger.debug(getattr(self, object_store_name))
@@ -152,23 +162,24 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
                 if self.cond_func(**inputs_to_cond_values) == False:
                     self.logger.warning(f"[Condition not met] NOT EXECUTED -> {self.name}")
                     return None
-                    
+                   
             if not (
-                set(inputs.keys()).issubset(self._input_schema_all["internal"]) and set(self._input_schema_required["internal"]).issubset(set(inputs.keys()))
+                set(inputs.keys()).issubset(self.func_schema.internal.input.all) and \
+                    set(self.func_schema.internal.input.required).issubset(set(inputs.keys()))
             ):  
-                self.logger.warning(f'{self.__class__.__name__}:{self.name}: Input pamatemeters {set(inputs.keys())} does not align with the keys: {set(self._input_schema_all["internal"])} \
-                    or Required input parameters {set(self._input_schema_required["internal"])} does not align with the input keys: {set(inputs.keys())}')
+                self.logger.warning(f'{self.__class__.__name__}:{self.name}: Input pamatemeters {set(inputs.keys())} does not align with the keys: {set(self.func_schema.internal.input.all)} \
+                    or Required input parameters {set(self.func_schema.internal.input.required)} does not align with the input keys: {set(inputs.keys())}')
                 
                 self.logger.warning(f"[PRECHECK] NOT EXECUTED YET -> {self.name}")  # TODO: raise error
                 return None
 
             if not self.is_start:
-                if self.input_object_store[session_id] not in self.history_object_store.get(session_id, {}).values():
+                if self.input_state[session_id] not in self.history_state.get(session_id, {}).values():
                     # TODO
-                    for _key, _value in self.input_object_store[session_id].items():
-                        self.history_object_store[session_id] = self.history_object_store.get(session_id, {})
-                        self.history_object_store[session_id][_key] = \
-                            self.history_object_store.get(session_id, {}).get(_key, []) + [_value]
+                    for _key, _value in self.input_state[session_id].items():
+                        self.history_state[session_id] = self.history_state.get(session_id, {})
+                        self.history_state[session_id][_key] = \
+                            self.history_state.get(session_id, {}).get(_key, []) + [_value]
             
             return inputs
         except (BaseException, Exception) as exc:
@@ -183,7 +194,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         session_id = uuid.uuid4().hex if not session_id else session_id
         
         try:
-            if self.node_type == "Pipeline":
+            if self.connectable_type == "Pipeline":
                 assert getattr(self, "is_compiled", None), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
             _inputs = self.precheck(session_id, inputs)
         except (BaseException, Exception) as exc:
@@ -207,7 +218,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
         finally:
-            self.clean_object_store(session_id)
+            self.clean_states(session_id)
 
     async def async_invoke(
         self,
@@ -218,7 +229,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         session_id = uuid.uuid4().hex if not session_id else session_id
         
         try:
-            if self.node_type == "Pipeline":
+            if self.connectable_type == "Pipeline":
                 assert getattr(self, "is_compiled"), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
             _inputs = self.precheck(session_id, inputs)
         except (BaseException, Exception) as exc:
@@ -235,17 +246,16 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
         finally:
-            self.clean_object_store(session_id)
-
+            self.clean_states(session_id)
 
     def _get_from_local_store(self, session_id: str) -> Dict:
         dt_local_store = {}
 
         for _key, _node_id_list in self._input_keys_nodes_map.items():
             all_inputs_on_key = list(
-                ele for ele in self.input_object_store[session_id][_key].values() if ele
+                ele for ele in self.input_state[session_id][_key].values() if ele
             )
-            for input_dict in self.history_object_store.get(session_id, {}).get(_key, []):
+            for input_dict in self.history_state.get(session_id, {}).get(_key, []):
                 all_inputs_on_key.extend(
                     list( ele for ele in input_dict.values() if ele )
                 )
@@ -258,7 +268,7 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
                     break
         return dt_local_store
 
-
+    @deprecated
     def _find_values(self, nested_dict: Dict, key: str, node_id_list: list) -> list:
         """Collect results from the current level.
         Args:
@@ -273,11 +283,3 @@ class BaseConnectable(BaseModel, metaclass=_MetaFoo):
             nested_dict[key][node_id] for node_id in node_id_list if key in nested_dict.keys() and node_id in nested_dict[key]
         ]
         return results
-
-    def _flatten_history_object_store(self, session_id) -> Dict[str, Dict]:
-        res = {
-            session_id: {
-                ".".join(_key.split('.')[1:]): _value for _key, _value in self.history_object_store.get(session_id, {}).items()
-            }
-        }
-        return res

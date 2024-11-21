@@ -33,7 +33,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         super().__init__(client=client, *args, **kwargs)
 
     def bind_tools(self, tools: List[Tool]):
-        self.tools_node = ToolsNode(name="XXX", tools=tools) # TODO
+        self.tools_node = ToolsNode(name=self.name + "_ToolsNode", tools=tools) # TODO
         return self
 
     async def _single_call(

@@ -1,7 +1,5 @@
 from __future__ import annotations
-from inspect import getfullargspec
 from pydantic import BaseModel
-from deprecated import deprecated
 from logging import Logger
 
 from llmagpie.core.logging import get_or_create_logger
@@ -88,9 +86,9 @@ def _from_node_to_node(upper: BaseNodeDisposable, lower: BaseNodeDisposable):
     o_node = upper.connectable
     i_node = lower.connectable
     
-    o_schema = o_node._output_schema_all["internal"]
-    i_schema = i_node._input_schema_all["internal"]
-
+    o_schema = o_node.func_schema.internal.output.all
+    i_schema = i_node.func_schema.internal.input.all
+    
     _in_keys, _out_keys = [], []
     for i_key, o_key in zip(lower.in_keys, upper.out_keys):
         o_key_schema = o_schema[o_key].get("type", "object")

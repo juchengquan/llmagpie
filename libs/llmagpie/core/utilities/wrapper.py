@@ -1,48 +1,20 @@
 from asyncio import get_event_loop
 from functools import wraps, partial
-from llmagpie.core.function import create_schema_from_function
+from llmagpie.core.function import create_schema_from_function, create_schema_from_types
 # typing
 from pydantic import BaseModel, create_model, Field
-from typing import Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator
+from typing import Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator, Any
 from dataclasses import dataclass
 from deprecated import deprecated
 import nest_asyncio
 nest_asyncio.apply()  # IMPORTANT
 
 
-def conditional(run_func: Optional[Callable] = None, **types):
-    # return type of conditional function must be boolean.
-    def _decorator(run_func):
-        # TODO
-        # method_name = run_func.__name__
-        # if method_name not in ("run", "run_async"):
-        #     raise Exception("'socket_types' decorator can only be used on 'run' and 'run_async' methods")
-
-        input_model = create_schema_from_function(run_func, in_class=False)  # TODO: in_class
-
-        # TODO async function
-        @wraps(run_func)
-        def wrapper(*args, **kwargs):
-            # TODO 0926
-            inputs = input_model(**kwargs)  # type: ignore
-            res = run_func(inputs.model_dump())
-            # if isinstance(res, Awaitable):
-            #     res = await res
-            assert isinstance(res, bool), "Output must be boolean!"
-            return res
-
-        # set up searchable object
-        setattr(wrapper, "_input_model", input_model)
-        return wrapper
-
-    if run_func:
-        # Decorator is called without parens
-        return _decorator(run_func)
-
-    return _decorator
-
-
 def socket_types(run_func: Optional[Callable] = None, **types):
+    class _SchemaConfig:
+        extra: Any = "forbid"
+        arbitrary_types_allowed: bool = True
+    
     def socket_types_decorator(run_func):
         """
         Decorator that sets the output types of the decorated method.
@@ -59,17 +31,14 @@ def socket_types(run_func: Optional[Callable] = None, **types):
         #     raise Exception("'socket_types' decorator can only be used on 'run' and 'run_async' methods")
         
         input_model = create_schema_from_function(run_func, in_class=True)   # TODO: in_class
-
-        _schema = {_n: (_t, Field(default=None)) for _n, _t in types.items()}
-        output_model = create_model(run_func.__name__ + "_Output", **_schema)  # type: ignore
-
+        output_model = create_schema_from_types(run_func.__name__, types)
+        
         # TODO async function
         @wraps(run_func)
         async def wrapper(*args, **kwargs) -> Union[BaseModel, Dict, Generator]:
             # TODO 0926
             inputs = input_model(**kwargs)  # type: ignore
             # res = run_func(inputs.model_dump())
-
             res = run_func(*args, **inputs.__dict__)  # TODO 1114
             # res = run_func(*args, **inputs.model_dump())  # Note: need to take args as it includes `self`
             
@@ -115,6 +84,38 @@ def socket_types(run_func: Optional[Callable] = None, **types):
 
     return socket_types_decorator
 
+
+@deprecated
+def conditional(run_func: Optional[Callable] = None, **types):
+    # return type of conditional function must be boolean.
+    def _decorator(run_func):
+        # TODO
+        # method_name = run_func.__name__
+        # if method_name not in ("run", "run_async"):
+        #     raise Exception("'socket_types' decorator can only be used on 'run' and 'run_async' methods")
+
+        input_model = create_schema_from_function(run_func, in_class=False)  # TODO: in_class
+
+        # TODO async function
+        @wraps(run_func)
+        def wrapper(*args, **kwargs):
+            # TODO 0926
+            inputs = input_model(**kwargs)  # type: ignore
+            res = run_func(inputs.model_dump())
+            # if isinstance(res, Awaitable):
+            #     res = await res
+            assert isinstance(res, bool), "Output must be boolean!"
+            return res
+
+        # set up searchable object
+        setattr(wrapper, "_input_model", input_model)
+        return wrapper
+
+    if run_func:
+        # Decorator is called without parens
+        return _decorator(run_func)
+
+    return _decorator
 
 @deprecated(reason="Not used")
 def convert_as_func_w_internal_variables(func: Optional[Callable] = None, mapping: Dict = {}):

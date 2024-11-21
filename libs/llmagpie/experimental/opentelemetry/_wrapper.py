@@ -117,7 +117,7 @@ class WrapDecorator:
             with self._tracer.start_as_current_span(name=name) as span:
                 # TODO: cqju remove for opentelemetry
                 span.set_attributes({
-                    "openinference.span.kind": instance.node_type if hasattr(instance, "node_type") else "LLM",
+                    "openinference.span.kind": instance.connectable_type if hasattr(instance, "connectable_type") else "LLM",
                 })
                 span.set_attributes({
                     "input.value": json.dumps(func_arguments, default=str, ensure_ascii=False),
