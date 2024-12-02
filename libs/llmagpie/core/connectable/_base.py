@@ -24,8 +24,8 @@ class _MetaFoo(ModelMetaclass):
 class BaseStateStore(BaseModel):
     """This class stores the state with upstream and downstream contexts.
     """
-    input_state: Dict[str, Dict[str, Dict]] = Field(default_factory=dict, description="Input object store that saves the lastest info from parent nodes (multiple sources are allowed).")
-    history_state: Dict[str, Dict[str, List[Dict]]] = Field(default_factory=dict, description="Input object store that saves the input history of pipelines and nodes.")
+    input_states: Dict[str, Dict[str, List[Dict]]] = Field(default_factory=dict, description="Input object store that saves the input history of pipelines and nodes.")
+    output_history_state: Dict[str, List[Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
     output_state: Dict[str, List[Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
       
 # Function Schema DataClass
@@ -183,7 +183,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
                     _node.clean_states(session_id)
                 
             # clean self
-            for object_store_name in ["input_state", "history_state", "output_state"]:
+            for object_store_name in ["input_states", "output_state", "output_history_state"]:
                 if hasattr(self, object_store_name):
                     self.logger.debug(f"{self.name} - {object_store_name}: BEFORE")
                     self.logger.debug(getattr(self, object_store_name))
@@ -222,15 +222,6 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
                 
                 self.logger.warning(f"[PRECHECK] NOT EXECUTED YET -> {self.name}")  # TODO: raise error
                 return None
-
-            if not self.is_start:
-                if self.input_state[session_id] not in self.history_state.get(session_id, {}).values():
-                    # TODO
-                    for _key, _value in self.input_state[session_id].items():
-                        self.history_state[session_id] = self.history_state.get(session_id, {})
-                        self.history_state[session_id][_key] = \
-                            self.history_state.get(session_id, {}).get(_key, []) + [_value]
-            
             return inputs
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
@@ -302,10 +293,8 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
         dt_local_store = {}
 
         for _key, _node_id_list in self._input_keys_nodes_map.items():
-            all_inputs_on_key = list(
-                ele for ele in self.input_state[session_id][_key].values() if ele
-            )
-            for input_dict in self.history_state.get(session_id, {}).get(_key, []):
+            all_inputs_on_key = []
+            for input_dict in self.input_states.get(session_id, {}).get(_key, []):
                 all_inputs_on_key.extend(
                     list( ele for ele in input_dict.values() if ele )
                 )

@@ -179,7 +179,7 @@ class BasePipeline(BaseConnectable):
     def _flatten_history_object_store(self, session_id: str) -> Dict[str, Dict]:
         res = {
             session_id: {
-                ".".join(_key.split('.')[1:]): _value for _key, _value in self.history_state.get(session_id, {}).items()
+                ".".join(_key.split('.')[1:]): _value for _key, _value in self.input_states.get(session_id, {}).items()
             }
         }
         return res
@@ -202,10 +202,10 @@ class BasePipeline(BaseConnectable):
 
             for _child in root_nodes:
                 assert _child.is_start
-                if _child.history_state == {} and self.history_state.get(session_id, []):
+                if _child.input_states == {} and self.input_states.get(session_id, []):
                     print("***self: ", self, _child)
                     try:
-                        _child.history_state = self._flatten_history_object_store(session_id)
+                        _child.input_states = self._flatten_history_object_store(session_id)
                     except Exception as exc:
                         # self.logger.warning(f"{_child} is the head node of the session.")
                         self._error_callback(session_id, exc)
@@ -254,21 +254,23 @@ class BasePipeline(BaseConnectable):
                 # NODE and EDGE: get child and its mapping keys
                 child, _input_keys, _output_keys = self.graph.nodes[child_id]["_obj"], edge_info_dict["_input_keys"], edge_info_dict["_output_keys"]
                 # emit value to children: change the name from output into input
-                if child.input_state.get(session_id, None) is None:
-                    child.input_state[session_id] = {
-                        _key: {} for _key in child.func_schema.internal.input.all  # TODO: find a more effient way to do this!
-                    }
-
+                if child.input_states.get(session_id, None) is None:
+                    child.input_states[session_id] = child.input_states.get(session_id, {})
+                
+                for _key in child.func_schema.internal.input.all:
+                    child.input_states[session_id][_key] = child.input_states.get(session_id, {}).get(_key, [])
+                
                 _input_values_internal = {
                     s: output_values_internal[d] for s, d in zip(_input_keys, _output_keys) if output_values_internal.get(d, None)  # TODO: 0926
                 }
                 if _input_values_internal != {}:
                     for _key, _value in _input_values_internal.items():
-                        child.input_state[session_id][_key] = child.input_state[session_id].get(_key, {})
-                        child.input_state[session_id][_key][parent._id] = {
-                            "_timestamp": time.time(),
-                            "value": _value,
-                        }
+                        child.input_states[session_id][_key] += [{
+                            parent._id: {
+                                "_timestamp": time.time(),
+                                "value": _value,
+                            }
+                        }]
                     
                     _inputs = child.precheck(session_id=session_id)
                     if _inputs:
@@ -299,7 +301,6 @@ class BasePipeline(BaseConnectable):
 
     def _callback(self, session_id):
         # after execution, self input object store should be cleaned
-        self.input_state.pop(session_id, None)  # TODO LC: double check
 
         # collect from its included components
         _output_values = {}
@@ -309,6 +310,13 @@ class BasePipeline(BaseConnectable):
 
         self.output_state[session_id] = self.output_state.get(session_id, [])
         self.output_state[session_id].append({
+            "_timestamp": time.time(),
+            "_type": self.connectable_type,
+            "value": _output_values
+        })
+        
+        self.output_history_state[session_id] = self.output_history_state.get(session_id, [])
+        self.output_history_state[session_id].append({
             "_timestamp": time.time(),
             "_type": self.connectable_type,
             "value": _output_values
@@ -387,10 +395,11 @@ class BasePipeline(BaseConnectable):
 
                             _parent = self.graph.nodes[node_id]["_obj"]
                             # FIXME 1009
-                            if isinstance(_parent.output_state[session_id], List):
-                                _most_recent_output_values = _parent.output_state[session_id].pop(-1)["value"]  # TODO: 1202
-                            elif isinstance(_parent.output_state[session_id], Dict):
-                                _most_recent_output_values = _parent.output_state[session_id]["value"]  #   1009
+                            if isinstance(_parent.output_history_state[session_id], List):
+                                # TODO 1202 patches
+                                _most_recent_output_values = _parent.output_history_state[session_id].pop(-1)["value"]  # TODO: 1202
+                            elif isinstance(_parent.output_history_state[session_id], Dict):
+                                _most_recent_output_values = _parent.output_history_state[session_id]["value"]  #  1009
                             # TODO 1016
                             if _parent.connectable_type == "Pipeline":
                                 _most_recent_output_values = decompose_pipeline(_most_recent_output_values)

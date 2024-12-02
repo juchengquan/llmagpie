@@ -96,10 +96,16 @@ class BaseNode(BaseConnectable):
 
     def _callback(self, session_id, _output_values):
         # after execution, self input object store should be cleaned
-        self.input_state.pop(session_id, None)  # TODO LC: double check
 
         self.output_state[session_id] = self.output_state.get(session_id, [])
         self.output_state[session_id].append({
+            "_timestamp": time.time(),
+            "_type": self.connectable_type,
+            "value": _output_values
+        })
+        
+        self.output_history_state[session_id] = self.output_history_state.get(session_id, [])
+        self.output_history_state[session_id].append({
             "_timestamp": time.time(),
             "_type": self.connectable_type,
             "value": _output_values
