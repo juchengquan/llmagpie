@@ -10,20 +10,18 @@ from asyncio import CancelledError
 from pydantic import BaseModel, Field, PrivateAttr, model_validator, computed_field
 from pydantic._internal._model_construction import ModelMetaclass
 
-from llmagpie.core.nodes.disposable import BaseNodeDisposable
 from llmagpie.core.connectable import BaseConnectable, FunctionSchema
-
 # EXPERIMENTAL
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer
 # typing
-from typing import List, Dict, Union, Any, Awaitable, Set, Optional, Callable, Generator, AsyncGenerator, Coroutine
+from typing import List, Dict, Union, Awaitable, Set, Optional, Callable, Generator, AsyncGenerator, Coroutine
 
 
 class BaseNode(BaseConnectable):
     class Config:
         extra = "forbid"
 
-    connectable_type: str = "Node"
+    connectable_type: str = "BaseNode"
     is_binded: bool = False
 
     def _validate(self):  # TODO: may need to change function name
@@ -118,7 +116,7 @@ class BaseNode(BaseConnectable):
         """EXECUTION when the node is triggered."""
         try:
             self.logger.debug(f"EXECUTE -> {self.name}")
-            # TODO 0926
+            # TODO: iteration
             self.iteration_counter[session_id] = self.iteration_counter.get(session_id, 0)
             if self.iteration_counter[session_id] >= self.max_iteration_limit:
                 raise Exception("max_iteration_limit is reached.")

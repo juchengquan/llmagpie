@@ -1,11 +1,7 @@
-import asyncio
 import time
-from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
+from llmagpie.core.nodes import BaseNode
 from llmagpie.core.pipeline import MultiHeadPipeline
 from llmagpie.core.utilities.wrapper import socket_types
-# typing
-from typing import List
-from app_instances._examples.aux_exec import AuxExecutor
 
 
 class EntryNode(BaseNode):
@@ -62,4 +58,7 @@ if __name__ == "__main__":
         "AA.inputs": "Hello"
     }
 
-    AuxExecutor(pipe, inputs)
+    response = pipe.invoke(inputs=inputs)
+    for ele in response:
+        print(ele)
+    # AuxExecutor(pipe, inputs)

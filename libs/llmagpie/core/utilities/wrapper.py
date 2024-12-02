@@ -3,7 +3,7 @@ from functools import wraps, partial
 from llmagpie.core.function import create_schema_from_function, create_schema_from_types
 # typing
 from pydantic import BaseModel, create_model, Field
-from typing import Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator, Any
+from typing import Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator
 from dataclasses import dataclass
 from deprecated import deprecated
 import nest_asyncio
@@ -11,10 +11,9 @@ nest_asyncio.apply()  # IMPORTANT
 
 
 def socket_types(run_func: Optional[Callable] = None, **types):
-    class _SchemaConfig:
-        extra: Any = "forbid"
-        arbitrary_types_allowed: bool = True
-    
+    # class _SchemaConfig:
+    #     extra: str = "forbid"
+    #     arbitrary_types_allowed: bool = True
     def socket_types_decorator(run_func):
         """
         Decorator that sets the output types of the decorated method.
@@ -49,7 +48,7 @@ def socket_types(run_func: Optional[Callable] = None, **types):
                 # TODO 1112
                 def _marshal_iterable(res_iterable: Generator) -> Generator:
                     for _res in res_iterable:
-                        yield output_model(**_res if _res else {}).model_dump(exclude_none=True)  # TODO: 0926: exclude_none=True
+                        yield output_model(**_res if _res else {}).model_dump(exclude_none=True)
 
                 def _async_to_sync_marshal_iterable(async_res_iterable: AsyncGenerator) -> Generator:  # nest_asyncio
                     loop = get_event_loop()

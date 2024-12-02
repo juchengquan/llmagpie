@@ -13,25 +13,23 @@ from inspect import isawaitable
 
 from llmagpie.core.dag import SingleDAG
 from llmagpie.core.connectable import BaseConnectable, FunctionSchema
-from llmagpie.core.nodes import BaseNode
-from llmagpie.core.nodes._base import BaseNodeDisposable
-from llmagpie.core.logging import get_or_create_logger
 # from llmagpie.experimental.merge_iterators import merge_iterators
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
 
+from ._aux import make_as_task, decompose_pipeline
+
 from typing import (
-    AsyncGenerator, Collection, TypeVar, Any,
+    AsyncGenerator, Collection, TypeVar,
     Sequence, Dict, Union, Optional, List, Callable,
     Self
 )
 
-from ._aux import make_as_task, decompose_pipeline
 
-
-class BasePipelineMixin(BaseConnectable):
+class BasePipeline(BaseConnectable):
     connectable_type: str = "Pipeline"
     nodes: List[BaseConnectable] = []
     graph: SingleDAG = Field(default_factory=lambda: SingleDAG(name=uuid.uuid4().hex))
+    
     is_compiled: bool = False
     
     def __init__(
@@ -58,7 +56,11 @@ class BasePipelineMixin(BaseConnectable):
             }
             _dt_input.update(node_obj.func_schema.external.input.all)
             
-         
+            node_obj.func_schema.external.input.required = {
+                f"{node_obj.name}.{k}" for k in node_obj.func_schema.internal.input.required
+            }
+            _dt_input_required += node_obj.func_schema.external.input.required
+            
         for node in self.graph.tail_nodes:
             node_obj = self.graph.nodes[node]["_obj"]
             
@@ -66,13 +68,6 @@ class BasePipelineMixin(BaseConnectable):
                 f"{node_obj.name}.{k}": v for k, v in node_obj.func_schema.internal.output.all.items()
             }
             _dt_output.update(node_obj.func_schema.external.output.all)
-        
-        for node in self.graph.head_nodes:
-            node_obj = self.graph.nodes[node]["_obj"]
-            node_obj.func_schema.external.input.required = {
-                f"{node_obj.name}.{k}" for k in node_obj.func_schema.internal.input.required
-            }
-            _dt_input_required += (node_obj.func_schema.external.input.required)
         
         self.func_schema = FunctionSchema(**{
             "internal": {
@@ -98,7 +93,6 @@ class BasePipelineMixin(BaseConnectable):
         })
         
         self.is_compiled = True
-
         return self
 
     def add_nodes(self, nodes: Union[Sequence[BaseConnectable], Dict[str, BaseConnectable]]):
@@ -123,35 +117,65 @@ class BasePipelineMixin(BaseConnectable):
             )
             # self.binded_nodes[node_key] = node
             # self.binded_nodes[node._id] = node_key
-
+            
     def add_edge(
         self,
-        src_node: Union[BaseConnectable, BaseNodeDisposable],
-        dest_node: Union[BaseConnectable, BaseNodeDisposable],
-        src_key: Optional[Union[List[str], str]] = None,
-        dest_key: Optional[Union[List[str], str]] = None
+        src_connectable: BaseConnectable,
+        dest_connectable: BaseConnectable,
+        src_key: Union[List[str], str],
+        dest_key: Union[List[str], str],
     ):
-        """Add edge.
-        """
+        """Add edge."""
         assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
-        if isinstance(src_node, BaseNodeDisposable) and isinstance(dest_node, BaseNodeDisposable):
-            # src_node >> dest_node
-            src_node._set_edge(dest_node, upstream=False)
+        if isinstance(src_key, str):
+            src_key = [src_key]
+        if isinstance(dest_key, str):
+            dest_key = [dest_key]
+        
+        o_schema = src_connectable.func_schema.internal.output.all
+        i_schema = dest_connectable.func_schema.internal.input.all
+        _in_keys, _out_keys = [], []
+        
+        for i_key, o_key in zip(dest_key, src_key):
+            o_key_schema = o_schema[o_key].get("type", "object")
+            i_key_schema = i_schema[i_key].get("type", "object")
+            assert i_key_schema == o_key_schema, f'The schema does not align: input: {i_key}->{i_key_schema}; output: {o_key}->{o_key_schema}'
+            # TODO: CHECK keys
+            assert i_key in i_schema, AssertionError(f'{i_key} not in {i_schema}')
+            assert o_key in o_schema, AssertionError(f'{o_key} not in {o_schema}')
 
-        elif isinstance(src_node, BaseConnectable) and isinstance(dest_node, BaseConnectable):
-            if isinstance(src_key, str):
-                src_key = [src_key]
-            if isinstance(dest_key, str):
-                dest_key = [dest_key]
-            BaseNodeDisposable(connectable=src_node, out_keys=src_key)._set_edge(
-                BaseNodeDisposable(connectable=dest_node, in_keys=dest_key),
-                upstream=False
-            )
+            # bind all output keys to input
+            dest_connectable._input_keys_nodes_map[i_key] = dest_connectable._input_keys_nodes_map.get(i_key, [])
+            dest_connectable._input_keys_nodes_map[i_key].append(src_connectable._id)
+
+            dest_connectable._input_keys_binded.add(i_key)
+            
+            _in_keys.append(i_key)
+            _out_keys.append(o_key)
+        
+        dest_connectable.is_start = False
+        src_connectable.is_end = False
+
+        assert all(ele in self.graph for ele in [src_connectable._id, dest_connectable._id])
+
+        if self.graph.has_edge(src_connectable._id, dest_connectable._id):
+        # if edge already exists, just update    
+            edge_data=self.graph.get_edge_data(src_connectable._id, dest_connectable._id)
+            for key in self.graph[src_connectable._id][dest_connectable._id]:
+                if key in edge_data:
+                    if key == '_output_keys':
+                        self.graph[src_connectable._id][dest_connectable._id][key] += src_key
+                    if key == '_input_keys':
+                        self.graph[src_connectable._id][dest_connectable._id][key] += dest_key
         else:
-            raise TypeError("type is wrong")
+            self.graph.add_edge(
+                u_of_edge=src_connectable._id,
+                v_of_edge=dest_connectable._id,
+                ##
+                _output_keys=_out_keys,
+                _input_keys=_in_keys
+            )
 
-    # async def _execute(self, **kwargs):
-    #     ...
     def _flatten_history_object_store(self, session_id: str) -> Dict[str, Dict]:
         res = {
             session_id: {
@@ -364,7 +388,7 @@ class BasePipelineMixin(BaseConnectable):
                             _parent = self.graph.nodes[node_id]["_obj"]
                             # FIXME 1009
                             if isinstance(_parent.output_state[session_id], List):
-                                _most_recent_output_values = _parent.output_state[session_id][-1]["value"]  #   1009
+                                _most_recent_output_values = _parent.output_state[session_id].pop(-1)["value"]  # TODO: 1202
                             elif isinstance(_parent.output_state[session_id], Dict):
                                 _most_recent_output_values = _parent.output_state[session_id]["value"]  #   1009
                             # TODO 1016

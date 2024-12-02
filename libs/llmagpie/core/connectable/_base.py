@@ -8,12 +8,12 @@ from logging import Logger
 from pydantic import Field, BaseModel, PrivateAttr, computed_field
 from pydantic._internal._model_construction import ModelMetaclass
 
+from deprecated import deprecated
 from llmagpie.core.logging import get_or_create_logger
 # typing
-from llmagpie.core.nodes.disposable import BaseNodeDisposable
-from typing import List, Dict, Union, Any, Awaitable, Set, Optional, Generator, Callable, AsyncGenerator, cast
+# from llmagpie.core.nodes.disposable import BaseConnectDisposable
+from typing import List, Dict, Union, Awaitable, Set, Literal, Optional, Generator, Callable, AsyncGenerator, cast
 from abc import abstractmethod
-from deprecated import deprecated
 
 class _MetaFoo(ModelMetaclass):
     @property
@@ -42,35 +42,85 @@ class FunctionSchema(BaseModel):
     external: _FunctionSchema = Field(default_factory=_FunctionSchema)
 
 
+class BaseConnectDisposable(BaseModel):
+    class Config:
+        extra = "forbid"
+        arbitrary_types_allowed = True
+
+    connectable: BaseConnectable
+    in_keys: List[str] = []
+    out_keys: List[str] = []
+
+    logger: Logger
+
+    def __init__(self, *args, **kwargs):
+        logger = get_or_create_logger(self.__class__.__name__)
+        super().__init__(logger=logger, *args, **kwargs)
+
+    def __lshift__(self, connect_disposable: "BaseConnectDisposable"):
+        self.connectable.pipeline.add_edge(
+            src_connectable=connect_disposable.connectable,
+            dest_connectable=self.connectable,
+            src_key=connect_disposable.out_keys,
+            dest_key=self.in_keys,
+        )
+        return connect_disposable
+
+    def __rshift__(self, connect_disposable: "BaseConnectDisposable"):
+        self.connectable.pipeline.add_edge(
+            src_connectable=self.connectable,
+            dest_connectable=connect_disposable.connectable, 
+            src_key=self.out_keys,
+            dest_key=connect_disposable.in_keys,  
+        )
+        
+        return connect_disposable
+
+    def __rrshift__(self, connect_disposable: "BaseConnectDisposable"):
+        """Implement [BaseRunnable] >> BaseRunnable because list don't have __rshift__ operators.
+        Note that self refer to BaseConnectDisposable.
+        """
+        self.__lshift__(connect_disposable)
+        return self
+
+    def __rlshift__(self, connect_disposable: "BaseConnectDisposable"):
+        """Implement [BaseConnectDisposable] << BaseRunnable because list don't have __lshift__ operators.
+        Note that self refer to BaseConnectDisposable.
+        """
+        self.__rshift__(connect_disposable)
+        return self
+
+
+
 class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
+    """This is base connectable including node and pipeline"""  # TODO
     class Config:
         extra = "forbid"
         arbitrary_types_allowed = True
     
     _id: str = PrivateAttr(default_factory=lambda: uuid.uuid4().hex)
     name: str = Field()
-    connectable_type: str = Field()
+    connectable_type: Literal["Pipeline", "Tool", "BaseNode"]
     logger: Logger = Field(default_factory=lambda: get_or_create_logger(logger_name="default"))
     is_start: bool = Field(default=True, description="Indicator that if the component is a start node.")
     is_end: bool = Field(default=True, description="Indicator that if the component is an end node.")
-
+    
+    pipeline: Optional[BaseConnectable] = None  # TODO: This is prepration for all connectables
+    # TODO: typing might be wrong
+        
     _input_keys_binded: Set[str] = set()
     # input binded keys
     _input_keys_nodes_map: Dict[str, str] = {}
     # input keys of nodes map
-    
-    pipeline: Optional[Any] = None  # TODO: This is prepration for all connectables
 
     # PRIVATE
     func_schema: FunctionSchema = Field(default_factory=FunctionSchema)
-    
     # condition function
     cond_func: Optional[Callable] = None
     inputs_to_cond: Optional[Dict] = None
-    # LOOP
+    # TODO LOOP
     iteration_counter: Dict = Field(default_factory=dict)
     max_iteration_limit: int = Field(default=10)
-    # TODO cqju
     count_visited: int = 0
     _max_count_visited = 10
 
@@ -81,15 +131,15 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
     def __lshift__(self, keys: Union[str, List[str]]):
         if isinstance(keys, str):
             keys = [keys]
-        return BaseNodeDisposable(connectable=self, in_keys=keys)
-
-    def __rrshift__(self, keys: Union[str, List[str]]):
-        return self.__lshift__(keys)
+        return BaseConnectDisposable(connectable=self, in_keys=keys)
 
     def __rshift__(self, keys: Union[str, List[str]]):
         if isinstance(keys, str):
             keys = [keys]
-        return BaseNodeDisposable(connectable=self, out_keys=keys)
+        return BaseConnectDisposable(connectable=self, out_keys=keys)
+
+    def __rrshift__(self, keys: Union[str, List[str]]):
+        return self.__lshift__(keys)
 
     def __rlshift__(self, keys: Union[str, List[str]]):
         return self.__rshift__(keys)

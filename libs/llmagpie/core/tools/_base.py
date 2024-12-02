@@ -3,14 +3,14 @@ from asyncio import get_event_loop
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, Field
 from inspect import getfullargspec, iscoroutinefunction
-from typing import Type, Literal, Any, Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator, Annotated, get_origin
+from typing import Type, Literal, Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator
 
 from llmagpie.core.function import create_schema_from_function, create_schema_from_types
 
 
 class BaseTool(BaseModel, ABC):
     class Config:
-        extra: Any = "forbid"
+        extra: str = "forbid"
         arbitrary_types_allowed: bool = True
 
     class _ArgsSchemaPlaceholder(BaseModel):
@@ -22,7 +22,7 @@ class BaseTool(BaseModel, ABC):
     """Used to tell the model how/when/why to use the tool."""
     args_schema: Type[BaseModel] = Field(default_factory=_ArgsSchemaPlaceholder)
     """The schema for the arguments that the tool accepts."""
-    return_schema: Type[Any]
+    return_schema: Type[BaseModel]
     """The schema for the arguments that the tool returns."""
     function: Callable
     """The function that will be executed when the tool is called."""
@@ -41,8 +41,11 @@ class BaseTool(BaseModel, ABC):
         }
         return tool_schema
 
+# TODO
+_ToolResultType = Union[Generator, AsyncGenerator, Dict, Tuple, Exception, BaseException, None]
+
 class Tool(BaseTool):
-    def _post_run(self, res: Union[Generator, AsyncGenerator, Dict, Tuple, Any]):  # TODO
+    def _post_run(self, res: _ToolResultType):  # TODO
         output_model = self.return_schema
         
         def _marshal_iterable(res_iterable: Generator) -> Generator:
@@ -55,7 +58,7 @@ class Tool(BaseTool):
                 try:
                     yield loop.run_until_complete(async_res_iterable.__anext__())
                 except StopAsyncIteration:
-                    break 
+                    break
 
         if isinstance(res, Union[Exception, BaseException]):
             raise res
@@ -95,25 +98,25 @@ class Tool(BaseTool):
         
         return self._post_run(res)
 
-def tool(func: Optional[Union[Callable, Awaitable]] = None, name: Optional[str] = None, **types):
+def tool(fun_func: Optional[Union[Callable, Awaitable]] = None, name: Optional[str] = None, **types):
     def _make_with_name(_name) -> Callable:
-        def _make_tool(func) -> BaseTool:
-            args = getfullargspec(func)
+        def _make_tool(fun_func) -> BaseTool:
+            args = getfullargspec(fun_func)
             if args.varargs or args.varkw:
                 raise ValueError("arg of kwargs are not allowed in function definition.")
 
             return Tool(
-                name=str(name) if name else func.__name__,
-                description=func.__doc__,
-                function=func,
-                function_type="async" if iscoroutinefunction(func) else "sync",
-                args_schema=create_schema_from_function(func),  # type: ignore
-                return_schema=create_schema_from_types(func.__name__, types),
+                name=str(_name) if _name else fun_func.__name__,
+                description=fun_func.__doc__,
+                function=fun_func,
+                function_type="async" if iscoroutinefunction(fun_func) else "sync",
+                args_schema=create_schema_from_function(fun_func),
+                return_schema=create_schema_from_types(fun_func.__name__, types),
             )
         return _make_tool
 
-    if func:
-        return _make_with_name(name)(func)
+    if fun_func:
+        return _make_with_name(name)(fun_func)
     else:
         return _make_with_name(name)
 

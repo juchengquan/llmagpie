@@ -6,7 +6,7 @@ from llmagpie.core.utilities.wrapper import socket_types
 # typing
 from typing import List
 
-from app_instances._examples.aux_exec import AuxExecutor
+# from app_instances._examples.aux_exec import AuxExecutor
 
 class EntryNode(BaseNode):
     @socket_types(outputs=str)
@@ -42,7 +42,8 @@ if __name__ == "__main__":
     d = MiddleNode_D(name="DD")
 
     p_b = MultiHeadPipeline(name="BB_PIPELINE", nodes=[b1, b2])
-    (b1 >> "outputs") >> ("inputs" >> b2)
+    # (b1 >> "outputs") >> ("inputs" >> b2)
+    p_b.add_edge(b1, b2, "outputs", "inputs")
     p_b.compile()
     
     p_c = MultiHeadPipeline(name="CC_PIPELINE", nodes=[c1, c2])
@@ -62,4 +63,9 @@ if __name__ == "__main__":
         "AA.inputs": "Hello"
     }
 
-    AuxExecutor(pipe, inputs)
+    
+    response = pipe.invoke(inputs=inputs)
+    for ele in response:
+        print(ele)
+        
+    # AuxExecutor(pipe, inputs)

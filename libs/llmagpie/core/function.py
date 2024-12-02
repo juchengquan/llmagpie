@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field, create_model
 # from pydantic._internal._model_construction import ModelMetaclass
 # from functools import wraps
 # from asyncio import create_task
-from typing import Callable, Any, cast, Type, Dict, Union, Annotated, get_origin
+from typing import Type, Callable, Any, cast, Type, Dict, Union, Annotated, get_origin
 
 
 class _SchemaConfig:
-    extra: Any = "forbid"
+    extra: str = "forbid"
     arbitrary_types_allowed: bool = True
 
     @staticmethod
@@ -21,7 +21,7 @@ class _SchemaConfig:
 def create_schema_from_types(
     name: str,
     types: Dict
-):
+) -> Type[BaseModel]:
     """Create schema from types.
 
     Args:
@@ -53,7 +53,7 @@ def create_schema_from_types(
 def create_schema_from_function(
     function: Callable,
     in_class: bool = False,
-) -> BaseModel:
+) -> Type[BaseModel]:
     """Create schema from function.
 
     Args:
@@ -67,15 +67,15 @@ def create_schema_from_function(
         BaseModel
     """
     function_name = function.__name__ + "_Input"
+    
     args = getfullargspec(function)
-    # assert "return" in args.annotations, "Return value type is not declared."
-
     if args.varargs or args.varkw:
         raise ValueError("arg of kwargs are not allowed in function definition.")
-
+    # assert "return" in args.annotations, "Return value type is not declared."
+    
     parameters = signature(function).parameters
+    
     fields: Dict = {}
-
     for (idx, p_name), p_val in zip(enumerate(parameters.keys()), parameters.values()):
         if in_class and idx == 0:
             continue

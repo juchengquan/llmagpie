@@ -1,9 +1,9 @@
 # from types import MethodType
 # from pydantic._internal._model_construction import ModelMetaclass
-from ._base import BasePipelineMixin
+from ._base import BasePipeline
 
 
-class MultiHeadPipeline(BasePipelineMixin):
+class MultiHeadPipeline(BasePipeline):
     def _validate(self):
         self._validate_root_nodes()
         # migrate heads and tails check from node level
@@ -12,10 +12,10 @@ class MultiHeadPipeline(BasePipelineMixin):
             _node = self.graph.nodes[_id]["_obj"]
             assert (self.graph.in_degree(_id) == 0 and _node.is_start is True) \
                 or (self.graph.in_degree(_id) != 0 and _node.is_start is not True), \
-                f"{self.__class__.__name__} Node In-degree is wrong."
+                f"{self.__class__.__name__} Pipeline In-degree is wrong."
             assert (self.graph.out_degree(_id) == 0 and _node.is_end is True) \
                 or (self.graph.out_degree(_id) != 0 and _node.is_end is not True), \
-                f"{self.__class__.__name__} Node Out-degree is wrong."
+                f"{self.__class__.__name__} Pipeline Out-degree is wrong."
         
     def _validate_root_nodes(self):
         """"""

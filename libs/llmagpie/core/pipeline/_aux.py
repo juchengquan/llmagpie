@@ -1,7 +1,8 @@
 from asyncio import create_task, Task
 from typing import (
-    AsyncIterable, AsyncIterator, Collection, TypeVar, Any,
-    Sequence, Dict, Union, Optional, List, Callable
+    AsyncIterator, TypeVar, 
+    # AsyncIterable, AsyncIterator, Collection, TypeVar,
+    # Sequence, Dict, Union, Optional, List, Callable,
 )
 
 _T = TypeVar("_T")

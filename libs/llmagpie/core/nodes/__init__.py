@@ -5,7 +5,6 @@ from .api import BaseServiceRetriever, BaseFastAPIServiceWithCallback, BaseFastA
 __all__ = [
     "BaseNode",
     "BaseServiceRetriever",
-    
     "BaseFastAPIServiceWithCallback",
     "BaseFastAPIService",
 ]

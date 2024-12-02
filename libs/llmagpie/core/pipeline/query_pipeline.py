@@ -5,13 +5,13 @@ from llmagpie.core.logging import fastapi_wrapper
 from llmagpie.core.sqlite_db.apscheduler import get_apscheduler
 from llmagpie.core.utilities.prometheus import make_metrics_app
 
-from ._base import BasePipelineMixin
+from ._base import BasePipeline
 # typing
 from typing import Dict, Self
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
-class QueryPipelineWithFastAPI(BasePipelineMixin):
+class QueryPipelineWithFastAPI(BasePipeline):
     fastapi_app: FastAPIHandler = None  # to be instantiated later
     api_router: APIRouter = Field(default_factory=APIRouter)
     cb_api_router: APIRouter = Field(default_factory=APIRouter)

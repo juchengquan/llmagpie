@@ -50,8 +50,8 @@ if __name__ == "__main__":
     d = MiddleNode_D(name="DD")
     
     pipe = MultiHeadPipeline(name="OUTER", nodes=[a, b1, c1, b2, c2, d])
-
-    (a >> "outputs") >> ("inputs" >> b1)
+    
+    (a >> "outputs") >> ("inputs" >> b1)  # type: ignore
     (b1 >> "outputs") >> ("inputs" >> c1)
     (c1 >> "outputs") >> ("inputs" >> d)
     
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     (b2 >> "outputs") >> ("inputs" >> c2)
     (c2 >> "outputs") >> ("inputs_2" >> d)
     pipe.compile()
-
+    
     inputs = {
         "AA.inputs": "Hello"
     }
