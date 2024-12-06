@@ -1,7 +1,5 @@
 from networkx import DiGraph, is_directed_acyclic_graph, recursive_simple_cycles, MultiDiGraph
 from deprecated import deprecated
-# typing
-from typing import Self
 
 class SingleDAG(DiGraph):
     def __init__(self, *args, **kwargs):

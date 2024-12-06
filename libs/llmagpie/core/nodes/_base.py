@@ -96,7 +96,6 @@ class BaseNode(BaseConnectable):
 
     def _callback(self, session_id, _output_values):
         # after execution, self input object store should be cleaned
-
         self.output_state[session_id] = self.output_state.get(session_id, [])
         self.output_state[session_id].append({
             "_timestamp": time.time(),

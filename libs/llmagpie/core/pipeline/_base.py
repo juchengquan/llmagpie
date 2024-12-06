@@ -3,7 +3,7 @@ from abc import abstractmethod
 import uuid
 import time
 import json
-import os
+import sys
 
 from asyncio import FIRST_COMPLETED, Task, create_task, wait, CancelledError
 from opentelemetry import trace, context
@@ -21,8 +21,11 @@ from ._aux import make_as_task, decompose_pipeline
 from typing import (
     AsyncGenerator, Collection, TypeVar,
     Sequence, Dict, Union, Optional, List, Callable,
-    Self
 )
+if sys.version_info.minor >= 11:
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 
 class BasePipeline(BaseConnectable):
@@ -257,14 +260,12 @@ class BasePipeline(BaseConnectable):
                 if child.input_states.get(session_id, None) is None:
                     child.input_states[session_id] = child.input_states.get(session_id, {})
                 
-                for _key in child.func_schema.internal.input.all:
-                    child.input_states[session_id][_key] = child.input_states.get(session_id, {}).get(_key, [])
-                
                 _input_values_internal = {
                     s: output_values_internal[d] for s, d in zip(_input_keys, _output_keys) if output_values_internal.get(d, None)  # TODO: 0926
                 }
                 if _input_values_internal != {}:
                     for _key, _value in _input_values_internal.items():
+                        child.input_states[session_id][_key] = child.input_states.get(session_id, {}).get(_key, [])
                         child.input_states[session_id][_key] += [{
                             parent._id: {
                                 "_timestamp": time.time(),

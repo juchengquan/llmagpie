@@ -8,12 +8,16 @@ from pydantic import field_validator, model_validator
 from ._base import BaseNode
 # typing
 from fastapi import Request
-# from typing import Dict
-from typing_extensions import Self
+from typing import Optional
+import sys
+if sys.version_info.minor >= 11:
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 class BaseServiceRetriever(BaseNode):
-    service_endpoint: str = None
-    service_endpoint_name: str = None
+    service_endpoint: Optional[str] = None
+    service_endpoint_name: Optional[str] = None
 
     @model_validator(mode='after')
     def check_endpoints(self) -> Self:

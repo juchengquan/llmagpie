@@ -1,3 +1,4 @@
+import sys
 from pydantic import Field
 from fastapi import APIRouter
 from llmagpie.core.fastapi import FastAPIHandler
@@ -7,9 +8,12 @@ from llmagpie.core.utilities.prometheus import make_metrics_app
 
 from ._base import BasePipeline
 # typing
-from typing import Dict, Self
+from typing import Dict
 from apscheduler.schedulers.background import BackgroundScheduler
-
+if sys.version_info.minor >= 11:
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 class QueryPipelineWithFastAPI(BasePipeline):
     fastapi_app: FastAPIHandler = None  # to be instantiated later
