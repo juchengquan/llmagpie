@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, PrivateAttr, model_validator, computed_fi
 from pydantic._internal._model_construction import ModelMetaclass
 
 from llmagpie.core.connectable import BaseConnectable, FunctionSchema
+from llmagpie.core.connectable._base import _RunningStatus
 # EXPERIMENTAL
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer
 # typing
@@ -121,6 +122,7 @@ class BaseNode(BaseConnectable):
         """EXECUTION when the node is triggered."""
         try:
             self.logger.debug(f"EXECUTE -> {self.name}")
+            self._running_status = _RunningStatus.RUNNING
             # TODO: iteration
             self.iteration_counter[session_id] = self.iteration_counter.get(session_id, 0)
             if self.iteration_counter[session_id] >= self.max_iteration_limit:
@@ -157,7 +159,8 @@ class BaseNode(BaseConnectable):
 
                 self._callback(session_id, _output_values)
             
-            self.logger.warning(f"[END] Yielding... {self.name}")
+            self.logger.warning(f'{self.__class__.__name__}:{self.name}: [END] Yielding')
+            self._running_status = _RunningStatus.INACTIVE
         
         except GeneratorExit as exc:
             self.logger.debug(":GeneratorExit:")

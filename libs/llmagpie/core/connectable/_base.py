@@ -1,7 +1,7 @@
 from __future__ import annotations
 # import os
 import uuid
-import itertools
+import inspect
 import asyncio
 from logging import Logger
 
@@ -14,20 +14,15 @@ from llmagpie.core.logging import get_or_create_logger
 # from llmagpie.core.nodes.disposable import BaseConnectDisposable
 from typing import List, Dict, Union, Awaitable, Set, Literal, Optional, Generator, Callable, AsyncGenerator, cast
 from abc import abstractmethod
+from enum import Enum
+from llmagpie.core.state import BaseState, InternalDictState
 
 class _MetaFoo(ModelMetaclass):
     @property
     def class_name(self) -> str:
         """class_name"""
         return self.__class__.__name__
-
-class BaseStateStore(BaseModel):
-    """This class stores the state with upstream and downstream contexts.
-    """
-    input_states: Dict[str, Dict[str, List[Dict]]] = Field(default_factory=dict, description="Input object store that saves the input history of pipelines and nodes.")
-    output_history_state: Dict[str, List[Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
-    output_state: Dict[str, List[Dict]] = Field(default_factory=dict, description="Output object store that saves the output history of all execution of nodes.")
-      
+   
 # Function Schema DataClass
 class _InterChangableInferface(BaseModel):
     required: List = []
@@ -41,7 +36,28 @@ class FunctionSchema(BaseModel):
     internal: _FunctionSchema = Field(default_factory=_FunctionSchema)
     external: _FunctionSchema = Field(default_factory=_FunctionSchema)
 
+class _RunningStatus(Enum):
+    INACTIVE = 0
+    RUNNING = 1
+    ERROR = 2
 
+class BaseStateStore(BaseModel):
+    """This class stores the state with upstream and downstream contexts.
+    """
+    class Config:
+        extra = "forbid"
+        arbitrary_types_allowed: bool = True
+        
+    input_state: InternalDictState = Field(default_factory=InternalDictState, description="Input object store that saves the input history of pipelines and nodes.")
+    output_history_state: InternalDictState = Field(default_factory=InternalDictState, description="Output object store that saves the output history of all execution of nodes.")
+    output_state: InternalDictState = Field(default_factory=InternalDictState, description="Output object store that saves the output history of all execution of nodes.")
+    
+    def clean_user_defined_states(self):
+        for name, field in self.model_fields.items():
+            obj = getattr(self, name)
+            if isinstance(obj, BaseState):
+                obj.clear()
+                
 class BaseConnectDisposable(BaseModel):
     class Config:
         extra = "forbid"
@@ -104,8 +120,9 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
     logger: Logger = Field(default_factory=lambda: get_or_create_logger(logger_name="default"))
     is_start: bool = Field(default=True, description="Indicator that if the component is a start node.")
     is_end: bool = Field(default=True, description="Indicator that if the component is an end node.")
+    _running_status: _RunningStatus = PrivateAttr(default=_RunningStatus.INACTIVE)
     
-    pipeline: Optional[BaseConnectable] = None  # TODO: This is prepration for all connectables
+    pipeline: Optional[BaseConnectable] = Field(default=None)  # TODO: This is prepration for all connectables
     # TODO: typing might be wrong
         
     _input_keys_binded: Set[str] = set()
@@ -170,6 +187,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
 
     def _error_callback(self, session_id: str, exc: Union[Exception, BaseException]):
         self.clean_states(session_id)
+        self._running_status = _RunningStatus.ERROR
         self.logger.error(f"Error on {self.name} -> {exc}")
         raise exc
 
@@ -181,9 +199,10 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
                 for _id in graph.nodes:
                     _node = graph.nodes[_id]["_obj"]
                     _node.clean_states(session_id)
-                
+            
+            self.clean_user_defined_states()
             # clean self
-            for object_store_name in ["input_states", "output_state", "output_history_state"]:
+            for object_store_name in ["input_state", "output_state", "output_history_state"]:
                 if hasattr(self, object_store_name):
                     self.logger.debug(f"{self.name} - {object_store_name}: BEFORE")
                     self.logger.debug(getattr(self, object_store_name))
@@ -215,12 +234,15 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
                    
             if not (
                 set(inputs.keys()).issubset(self.func_schema.internal.input.all) and \
-                    set(self.func_schema.internal.input.required).issubset(set(inputs.keys()))
+                set(self.func_schema.internal.input.required).issubset(set(inputs.keys()))
             ):  
-                self.logger.warning(f'{self.__class__.__name__}:{self.name}: Input pamatemeters {set(inputs.keys())} does not align with the keys: {set(self.func_schema.internal.input.all)} \
-                    or Required input parameters {set(self.func_schema.internal.input.required)} does not align with the input keys: {set(inputs.keys())}')
+                self.logger.warning(
+                    f'{self.__class__.__name__}:{self.name}: '
+                    f'Input pamatemeters {set(inputs.keys())} does not align with the keys: {set(self.func_schema.internal.input.all)}'
+                    f', or Required input parameters {set(self.func_schema.internal.input.required)} '
+                    f'does not align with the input keys: {set(inputs.keys())}')
                 
-                self.logger.warning(f"[PRECHECK] NOT EXECUTED YET -> {self.name}")  # TODO: raise error
+                self.logger.warning(f"[PRECHECK] NOT EXECUTED YET -> {self.name}: Imcomplete inputs")  # TODO: raise error
                 return None
             return inputs
         except (BaseException, Exception) as exc:
@@ -294,7 +316,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
 
         for _key, _node_id_list in self._input_keys_nodes_map.items():
             all_inputs_on_key = []
-            for input_dict in self.input_states.get(session_id, {}).get(_key, []):
+            for input_dict in self.input_state.get(session_id, {}).get(_key, []):
                 all_inputs_on_key.extend(
                     list( ele for ele in input_dict.values() if ele )
                 )

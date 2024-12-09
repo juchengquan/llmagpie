@@ -15,7 +15,7 @@ from llmagpie.core.dag import SingleDAG
 from llmagpie.core.connectable import BaseConnectable, FunctionSchema
 # from llmagpie.experimental.merge_iterators import merge_iterators
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
-
+from llmagpie.core.connectable._base import _RunningStatus
 from ._aux import make_as_task, decompose_pipeline
 
 from typing import (
@@ -110,6 +110,8 @@ class BasePipeline(BaseConnectable):
 
     def _add_node(self, node: BaseConnectable, node_key: str):
         assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
+        if node not in self.nodes:
+            self.nodes.append(node)
         # bind pipeline reference to node
         node.pipeline = self
 
@@ -182,7 +184,7 @@ class BasePipeline(BaseConnectable):
     def _flatten_history_object_store(self, session_id: str) -> Dict[str, Dict]:
         res = {
             session_id: {
-                ".".join(_key.split('.')[1:]): _value for _key, _value in self.input_states.get(session_id, {}).items()
+                ".".join(_key.split('.')[1:]): _value for _key, _value in self.input_state.get(session_id, {}).items()
             }
         }
         return res
@@ -194,7 +196,6 @@ class BasePipeline(BaseConnectable):
         root_nodes: List[BaseConnectable]
     ):
         try:
-            assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
             _root_node_input_schema = set( self.func_schema.internal.input.all.keys() )
             _root_node_required_input = set( self.func_schema.internal.input.required )
             
@@ -205,10 +206,10 @@ class BasePipeline(BaseConnectable):
 
             for _child in root_nodes:
                 assert _child.is_start
-                if _child.input_states == {} and self.input_states.get(session_id, []):
+                if _child.input_state == {} and self.input_state.get(session_id, []):
                     print("***self: ", self, _child)
                     try:
-                        _child.input_states = self._flatten_history_object_store(session_id)
+                        _child.input_state = self._flatten_history_object_store(session_id)
                     except Exception as exc:
                         # self.logger.warning(f"{_child} is the head node of the session.")
                         self._error_callback(session_id, exc)
@@ -242,12 +243,14 @@ class BasePipeline(BaseConnectable):
         output_values_internal: Dict,
         parent: BaseConnectable,
         ):
-        try:
-            assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
-            assert any(x is not None for x in output_values_internal.values()), \
-                f"{parent.name}: No parameter is filled; all are None."
-        except AssertionError as exc:
-            self._error_callback(session_id, CancelledError(exc))
+        # check if parent had valid outputs; if not, no emission
+        if not any(x is not None for x in output_values_internal.values()):
+            return {}
+        # try:
+        #     assert any(x is not None for x in output_values_internal.values()), \
+        #         f"{parent.name}: No parameter is filled; all are None."
+        # except AssertionError as exc:
+        #     self._error_callback(session_id, CancelledError(exc))
 
         try:
             # EMIT TO CHILDREN of the node
@@ -257,16 +260,16 @@ class BasePipeline(BaseConnectable):
                 # NODE and EDGE: get child and its mapping keys
                 child, _input_keys, _output_keys = self.graph.nodes[child_id]["_obj"], edge_info_dict["_input_keys"], edge_info_dict["_output_keys"]
                 # emit value to children: change the name from output into input
-                if child.input_states.get(session_id, None) is None:
-                    child.input_states[session_id] = child.input_states.get(session_id, {})
+                if child.input_state.get(session_id, None) is None:
+                    child.input_state[session_id] = child.input_state.get(session_id, {})
                 
                 _input_values_internal = {
                     s: output_values_internal[d] for s, d in zip(_input_keys, _output_keys) if output_values_internal.get(d, None)  # TODO: 0926
                 }
                 if _input_values_internal != {}:
                     for _key, _value in _input_values_internal.items():
-                        child.input_states[session_id][_key] = child.input_states.get(session_id, {}).get(_key, [])
-                        child.input_states[session_id][_key] += [{
+                        child.input_state[session_id][_key] = child.input_state.get(session_id, {}).get(_key, [])
+                        child.input_state[session_id][_key] += [{
                             parent._id: {
                                 "_timestamp": time.time(),
                                 "value": _value,
@@ -334,6 +337,7 @@ class BasePipeline(BaseConnectable):
         """EXECUTION when the node is triggered."""
         try:
             assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
+            self._running_status = _RunningStatus.RUNNING
             if inputs:
                 # TODO cqju: uncomment to unlock opentelemetry
                 if OTEL_ENABLED:
@@ -408,22 +412,23 @@ class BasePipeline(BaseConnectable):
                                 pass
 
                             if not _parent.is_end:
-                                self.logger.warning(f"{_parent.name} -> EMIT")
                                 # collect the infomation for children nodes
-                                _c_tasks_dict = self._collect_children_tasks(
+                                _c_tasks_dict: Optional[Dict] = self._collect_children_tasks(
                                     session_id=session_id,
                                     output_values_internal=_most_recent_output_values,
                                     parent=_parent,
                                 )
-                                for _, _asset in _c_tasks_dict.items():
-                                    iterator_dict.update({
-                                        _asset["iterator"]: {
-                                            "node_id": _asset["node_id"],
-                                            "node_name": _asset["node_name"],
-                                            "iterator": _asset["iterator"],
-                                            "task": make_as_task(_asset["iterator"])
-                                        }
-                                    })
+                                if _c_tasks_dict:
+                                    for _, _asset in _c_tasks_dict.items():
+                                        iterator_dict.update({
+                                            _asset["iterator"]: {
+                                                "node_id": _asset["node_id"],
+                                                "node_name": _asset["node_name"],
+                                                "iterator": _asset["iterator"],
+                                                "task": make_as_task(_asset["iterator"])
+                                            }
+                                        })
+                                else: ...
                         except Exception as exc:
                             self._error_callback(session_id, exc)
                         else:
@@ -448,7 +453,8 @@ class BasePipeline(BaseConnectable):
                 # Don't forget to detach or parent will remain the parent above this call stack
                 # FIXME cqju
                 # context.detach(token)  # ERROR ContextVar
-
+                
+            self._running_status = _RunningStatus.INACTIVE
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
         finally:
