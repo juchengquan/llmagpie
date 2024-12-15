@@ -47,14 +47,13 @@ class ToolsNode(BaseNode):
                     function_args = ele["function"]
                     ele["id"] = ele.get("id", uuid4().hex)
                     
-                    tool = self.tools_with_mapping[function_args["name"]]
-
                     try:
+                        _tool = self.tools_with_mapping[function_args["name"]]
                         args = function_args["arguments"]
                         if isinstance(args, str):
                             args = json.loads(args)
-                        self.logger.info(f"Running tool: {tool.name}")
-                        future = executor.submit(tool.run, args)
+                        self.logger.info(f"Running tool: {_tool.name}")
+                        future = executor.submit(_tool.run, args)
                         
                     except:
                         future = executor.submit(lambda: Exception("Function argument is wrong"))

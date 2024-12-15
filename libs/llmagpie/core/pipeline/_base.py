@@ -5,20 +5,22 @@ import time
 import json
 import sys
 
-from asyncio import FIRST_COMPLETED, Task, create_task, wait, CancelledError
+from asyncio import FIRST_COMPLETED, wait, CancelledError, get_running_loop
 from opentelemetry import trace, context
 from pydantic import BaseModel, Field
 from pydantic._internal._model_construction import ModelMetaclass
-from inspect import isawaitable
+
 
 from llmagpie.core.dag import SingleDAG
 from llmagpie.core.connectable import BaseConnectable, FunctionSchema
 # from llmagpie.experimental.merge_iterators import merge_iterators
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
 from llmagpie.core.connectable._base import _RunningStatus
-from ._aux import make_as_task, decompose_pipeline
+from llmagpie.core.state import BaseState, InternalDictState
+from ._aux import make_as_task, decompose_pipeline, _as_task
 
 from typing import (
+    cast,
     AsyncGenerator, Collection, TypeVar,
     Sequence, Dict, Union, Optional, List, Callable,
 )
@@ -181,13 +183,13 @@ class BasePipeline(BaseConnectable):
                 _input_keys=_in_keys
             )
 
-    def _flatten_history_object_store(self, session_id: str) -> Dict[str, Dict]:
+    def _flatten_history_object_store(self, session_id: str) -> InternalDictState:
         res = {
             session_id: {
                 ".".join(_key.split('.')[1:]): _value for _key, _value in self.input_state.get(session_id, {}).items()
             }
         }
-        return res
+        return cast(InternalDictState, res)
     
     def _collect_head_tasks(
         self,
@@ -221,7 +223,7 @@ class BasePipeline(BaseConnectable):
                 }
                 _inputs = _child.precheck(session_id=session_id, inputs=_inputs)
                 if _inputs:
-                    _iterator_target = _child.event_on_execution(
+                    _iterator_target = _child.async_event_on_execution(
                         session_id=session_id,
                         inputs=_inputs,
                     )
@@ -279,7 +281,7 @@ class BasePipeline(BaseConnectable):
                     _inputs = child.precheck(session_id=session_id)
                     if _inputs:
                         self.logger.debug(f"{parent.name} -> emitted to -> {child.name}")
-                        iterator_target = child.event_on_execution(
+                        iterator_target = child.async_event_on_execution(
                             session_id=session_id,
                             inputs=_inputs,
                         )
@@ -328,7 +330,7 @@ class BasePipeline(BaseConnectable):
 
         return _output_values
 
-    async def event_on_execution(
+    async def async_event_on_execution(
         self,
         inputs: Optional[Dict],
         session_id: str,
@@ -336,6 +338,7 @@ class BasePipeline(BaseConnectable):
     ) -> AsyncGenerator:
         """EXECUTION when the node is triggered."""
         try:
+            aioloop = get_running_loop()
             assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
             self._running_status = _RunningStatus.RUNNING
             if inputs:
@@ -362,7 +365,7 @@ class BasePipeline(BaseConnectable):
                         "node_id": asset["node_id"],
                         "node_name": asset["node_name"],
                         "iterator": asset["iterator"], 
-                        "task": make_as_task(asset["iterator"]),
+                        "task": make_as_task(asset["iterator"], aioloop),
                     } for _, asset in task_dict.items()
                 }
 
@@ -425,7 +428,7 @@ class BasePipeline(BaseConnectable):
                                                 "node_id": _asset["node_id"],
                                                 "node_name": _asset["node_name"],
                                                 "iterator": _asset["iterator"],
-                                                "task": make_as_task(_asset["iterator"])
+                                                "task": make_as_task(_asset["iterator"], aioloop)
                                             }
                                         })
                                 else: ...
@@ -438,7 +441,7 @@ class BasePipeline(BaseConnectable):
                                 "node_id": node_id,
                                 "node_name": node_name,
                                 "iterator": iterator,
-                                "task": make_as_task(iterator),
+                                "task": make_as_task(iterator, aioloop),
                             }
                 # Finally, callback function here
                 _output_values = self._callback(session_id)

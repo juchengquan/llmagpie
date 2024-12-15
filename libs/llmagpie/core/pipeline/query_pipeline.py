@@ -1,10 +1,10 @@
 import sys
 from pydantic import Field
 from fastapi import APIRouter
-from llmagpie.core.fastapi import FastAPIHandler
 from llmagpie.core.logging import fastapi_wrapper
 from llmagpie.core.sqlite_db.apscheduler import get_apscheduler
 from llmagpie.core.utilities.prometheus import make_metrics_app
+from llmagpie.experimental.fastapi import FastAPIHandler
 
 from ._base import BasePipeline
 # typing

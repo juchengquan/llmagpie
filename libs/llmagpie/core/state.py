@@ -1,14 +1,17 @@
 from typing import List, Dict
+from abc import abstractmethod, ABC
 
-class BaseState:
-    def __init__(self) -> None:
-        ...
+
+class BaseState(ABC):
+    @abstractmethod    
+    def clear(self):
+        raise NotImplementedError
     
-class ListState(BaseState, List):
+class ListState(List, BaseState):
     ...
 
-class DictState(BaseState, Dict):
+class DictState(Dict, BaseState):
     ...
 
-class InternalDictState(BaseState, Dict):
+class InternalDictState(Dict, BaseState):
     ...

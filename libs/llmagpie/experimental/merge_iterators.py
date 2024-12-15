@@ -1,7 +1,6 @@
 from asyncio import FIRST_COMPLETED, Task, create_task, wait
 from typing import AsyncIterable, AsyncIterator, Collection, TypeVar
 
-
 _T = TypeVar("_T")
 
 

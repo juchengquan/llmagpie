@@ -1,12 +1,21 @@
-import asyncio
-from asyncio import get_event_loop
+import functools
+from asyncio import (
+    get_running_loop,
+    new_event_loop,
+    run as asyncio_run
+)
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, create_model, Field
-from inspect import getfullargspec, iscoroutinefunction
-from typing import Type, Literal, Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator
+from inspect import getfullargspec, iscoroutinefunction, isasyncgenfunction
+from typing import (cast, Any, Type, Literal, Union, Optional, Callable, Awaitable, Dict, Tuple, Callable, Generator, AsyncGenerator)
+from functools import wraps
 
 from llmagpie.core.function import create_schema_from_function, create_schema_from_types
-
+from llmagpie.core.utilities.marshal_terable import marshal_iterable, async_marshal_iterable
+from llmagpie.core.utilities.marshal_terable import post_run
+from llmagpie.core.utilities.async_to_sync import (
+    exec_in_event_loop, exec_in_separated_thread
+)
 
 class BaseTool(BaseModel, ABC):
     class Config:
@@ -24,9 +33,11 @@ class BaseTool(BaseModel, ABC):
     """The schema for the arguments that the tool accepts."""
     return_schema: Type[BaseModel]
     """The schema for the arguments that the tool returns."""
-    function: Callable
+    function: Any
     """The function that will be executed when the tool is called."""
-    function_type: Literal["sync", "async"]
+    async_function:  Optional[Callable] = None
+    """The async function that will be executed when the tool is called."""
+    function_type: Literal["sync", "sync_gen", "async", "async_gen"]
     # async_function: Optional[Awaitable] = None
     """The async function that will be executed when the tool is called."""
 
@@ -42,83 +53,128 @@ class BaseTool(BaseModel, ABC):
         return tool_schema
 
 # TODO
-_ToolResultType = Union[Generator, AsyncGenerator, Dict, Tuple, Exception, BaseException, None]
+_ToolResultType = Union[Tuple, Dict, Generator, AsyncGenerator, Exception, BaseException, None]
 
 class Tool(BaseTool):
     def _post_run(self, res: _ToolResultType):  # TODO
         output_model = self.return_schema
-        
-        def _marshal_iterable(res_iterable: Generator) -> Generator:
-            for _res in res_iterable:
-                yield output_model(**_res if _res else {}).model_dump(exclude_none=True)  # TODO: 0926: exclude_none=True
 
-        def _async_to_sync_marshal_iterable(async_res_iterable: AsyncGenerator) -> Generator:  # nest_asyncio
-            loop = get_event_loop()
+        def _async_marshal_iterable(async_res_iterable: AsyncGenerator) -> Generator:
             while True:
                 try:
                     yield loop.run_until_complete(async_res_iterable.__anext__())
                 except StopAsyncIteration:
                     break
-
+        print(type(res))
         if isinstance(res, Union[Exception, BaseException]):
             raise res
-            
-        if isinstance(res, Generator):
-            return _marshal_iterable(res)
-        if isinstance(res, AsyncGenerator):
-            return _async_to_sync_marshal_iterable(res)
-        if isinstance(res, Dict):
+        elif isinstance(res, Generator):
+            return marshal_iterable(res, output_model)
+        elif isinstance(res, AsyncGenerator):
+            loop = new_event_loop()  # TODO
+            return marshal_iterable( exec_in_separated_thread(res, loop), output_model)  # TODO
+        elif isinstance(res, Dict):
             return output_model(**res if res else {}).model_dump(exclude_none=True)
-        if isinstance(res, Tuple):
+        elif isinstance(res, Tuple):
             return output_model(**{k:v for k, v in zip(output_model.model_fields.keys(), res)} if res else {}).model_dump(exclude_none=True)
-        
         try:
             return output_model(**{k:v for k, v in zip(output_model.model_fields.keys(), [res])} if res else {}).model_dump(exclude_none=True)
         except:
             raise TypeError("Result type is wrong.")
-        
-    def run(self, input: dict):
-        _input: dict = self.args_schema(**input).model_dump()
-        
-        if self.function_type == "sync":
-            res = self.function(**_input)
-        else:
-            res = run_async_as_sync( self.function, **_input)
-            
-        return self._post_run(res)
 
+    def deprecated_run(self, input: dict):  # TODO
+        # _input: dict = self.args_schema(**input).model_dump()
+        # print("XXX", _input)
+        if self.function_type == "sync":
+            print("GGG")
+            res = self.function(**input)
+        else:
+            res = self.function(**input)
+
+        print("XXX", res, type(res))
+
+        # res = run_async_as_sync( self.function, **_input)
+        # return self._post_run(res)
+
+    async def async_stream(self, input: dict):
+        res = self.function(**input)
+        if isinstance(res, Awaitable):
+            res = await res
+
+        if isinstance(res, Generator):
+            for e in res:
+                yield e
+        elif isinstance(res, AsyncGenerator):
+            async for e in res:
+                yield e
+        elif isinstance(res, Dict):
+            yield res
+        else:
+            raise TypeError("WTF")
 
     async def async_run(self, input: dict):
-        _input: dict = self.args_schema(**input).model_dump()
+        res = self.function(**input)
+        if isinstance(res, Awaitable):
+            res = await res
         
-        if self.function_type == "sync":
-            res = self.function(**_input)
+        last_res = None
+        if isinstance(res, Generator):
+            for e in res:
+                last_res = e
+        elif isinstance(res, AsyncGenerator):
+            async for e in res:
+                last_res = e
+        elif isinstance(res, Dict):
+            last_res = res
         else:
-            res = await self.function(**_input)
-        
-        return self._post_run(res)
+            raise TypeError("WTF")
+        return last_res
 
-def tool(fun_func: Optional[Union[Callable, Awaitable]] = None, name: Optional[str] = None, **types):
+
+# decorator
+def as_tool(run_func: Optional[Callable] = None, name: Optional[str] = None, **types):
     def _make_with_name(_name) -> Callable:
-        def _make_tool(fun_func) -> BaseTool:
-            args = getfullargspec(fun_func)
+        def _make_tool(run_func: Callable) -> BaseTool:
+            args = getfullargspec(run_func)
             if args.varargs or args.varkw:
                 raise ValueError("arg of kwargs are not allowed in function definition.")
+            if not run_func.__doc__:
+                raise ValueError("Tools does not have description.")
+
+            print("EEE", run_func, iscoroutinefunction(run_func), isasyncgenfunction(run_func))
+
+            input_model = create_schema_from_function(run_func)
+            output_model = create_schema_from_types(run_func.__name__, types)
+
+            def _func_wrapper(run_func):
+                @wraps(run_func)
+                async def _wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
+                    # TODO 0926
+                    inputs = input_model(**kwargs)
+                    # res = run_func(inputs.model_dump())
+                    res = run_func(*args, **inputs.__dict__)
+                    if isinstance(res, Awaitable):
+                        res = await res
+                    return post_run(res, output_model)
+
+                return _wrapper
 
             return Tool(
-                name=str(_name) if _name else fun_func.__name__,
-                description=fun_func.__doc__,
-                function=fun_func,
-                function_type="async" if iscoroutinefunction(fun_func) else "sync",
-                args_schema=create_schema_from_function(fun_func),
-                return_schema=create_schema_from_types(fun_func.__name__, types),
+                name=str(_name) if _name else run_func.__name__,
+                description=run_func.__doc__,
+                function=_func_wrapper(run_func),  # TODO
+                # async_function=_func_wrapper(run_func),
+                # function_type="async" if iscoroutinefunction(run_func) or isasyncgenfunction(run_func) else "sync",
+                function_type="async",
+                args_schema=input_model,
+                return_schema=output_model,
             )
+
         return _make_tool
 
-    if fun_func:
-        return _make_with_name(name)(fun_func)
-    else:
-        return _make_with_name(name)
+    if run_func:
+        return _make_with_name(name)(run_func)
+    return _make_with_name(name)
 
 
 import threading
@@ -133,20 +189,20 @@ class RunThread(threading.Thread):
 
     def run(self):
         try:
-            self.result = asyncio.run(self.func(*self.args, **self.kwargs))
+            self.result = asyncio_run(self.func(*self.args, **self.kwargs))
         except (Exception, BaseException) as exc:
             self.result = exc
 
 def run_async_as_sync(func, *args, **kwargs):
     try:
-        loop = asyncio.get_running_loop()
+        loop = get_running_loop()
     except RuntimeError:
         loop = None
-        
+
     if loop and loop.is_running():
         thread = RunThread(func, args, kwargs)
         thread.start()
         thread.join()
         return thread.result
     else:
-        return asyncio.run(func(*args, **kwargs))
+        return asyncio_run(func(*args, **kwargs))

@@ -1,20 +1,19 @@
 from asyncio import get_event_loop
 from functools import wraps, partial
 from llmagpie.core.function import create_schema_from_function, create_schema_from_types
+from llmagpie.core.utilities.marshal_terable import post_run
 # typing
 from pydantic import BaseModel, create_model, Field
-from typing import Union, Optional, Callable, Dict, Tuple, Awaitable, Callable, Iterable, Generator, AsyncGenerator
+from typing import Union, Optional, Callable, Dict, Awaitable, Callable, Generator, AsyncGenerator
 from dataclasses import dataclass
 from deprecated import deprecated
-import nest_asyncio
-nest_asyncio.apply()  # IMPORTANT
 
 
 def socket_types(run_func: Optional[Callable] = None, **types):
     # class _SchemaConfig:
     #     extra: str = "forbid"
     #     arbitrary_types_allowed: bool = True
-    def socket_types_decorator(run_func):
+    def _func_wrapper(run_func) -> Callable:
         """
         Decorator that sets the output types of the decorated method.
 
@@ -23,65 +22,35 @@ def socket_types(run_func: Optional[Callable] = None, **types):
         the decorated method. The ComponentMeta metaclass will use this data to create
         sockets at instance creation time.
         """
-        
         # TODO
         # method_name = run_func.__name__
         # if method_name not in ("run", "run_async"):
         #     raise Exception("'socket_types' decorator can only be used on 'run' and 'run_async' methods")
-        
         input_model = create_schema_from_function(run_func, in_class=True)   # TODO: in_class
         output_model = create_schema_from_types(run_func.__name__, types)
-        
+
         # TODO async function
         @wraps(run_func)
-        async def wrapper(*args, **kwargs) -> Union[BaseModel, Dict, Generator]:
+        async def _wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
             # TODO 0926
             inputs = input_model(**kwargs)  # type: ignore
             # res = run_func(inputs.model_dump())
             res = run_func(*args, **inputs.__dict__)  # TODO 1114
             # res = run_func(*args, **inputs.model_dump())  # Note: need to take args as it includes `self`
-            
             if isinstance(res, Awaitable):
                 res = await res
 
-            def _post_run(res: Union[Generator, AsyncGenerator, Dict, Tuple]):
-                # TODO 1112
-                def _marshal_iterable(res_iterable: Generator) -> Generator:
-                    for _res in res_iterable:
-                        yield output_model(**_res if _res else {}).model_dump(exclude_none=True)
-
-                def _async_to_sync_marshal_iterable(async_res_iterable: AsyncGenerator) -> Generator:  # nest_asyncio
-                    loop = get_event_loop()
-                    while True:
-                        try:
-                            yield loop.run_until_complete(async_res_iterable.__anext__())
-                        except StopAsyncIteration:
-                            break 
-
-                if isinstance(res, Generator):
-                    return _marshal_iterable(res)
-                if isinstance(res, AsyncGenerator):
-                    return _async_to_sync_marshal_iterable(res)
-                if isinstance(res, Dict):
-                    return output_model(**res if res else {}).model_dump(exclude_none=True)
-                if isinstance(res, Tuple):
-                    return output_model(**{k:v for k, v in zip(output_model.model_fields.keys(), res)} if res else {}).model_dump(exclude_none=True)
-                try:
-                    return output_model(**{k:v for k, v in zip(output_model.model_fields.keys(), [res])} if res else {}).model_dump(exclude_none=True)
-                except:
-                    raise TypeError("Result type is wrong.")
-            
-            return _post_run(res)
+            return post_run(res, output_model)
         # set up searchable object
-        setattr(wrapper, "_input_model", input_model)
-        setattr(wrapper, "_output_model", output_model)
-        return wrapper
+        setattr(_wrapper, "_input_model", input_model)
+        setattr(_wrapper, "_output_model", output_model)
+        return _wrapper
 
     if run_func:
         # Decorator is called without parens
-        return socket_types_decorator(run_func)
+        return _func_wrapper(run_func)
+    return _func_wrapper
 
-    return socket_types_decorator
 
 
 @deprecated

@@ -13,7 +13,7 @@ from llmagpie.core.sqlite_db.connector import SessionLocal
 from llmagpie.core.sqlite_db.datatype import SessionBase, AppStateBase
 from llmagpie.core.logging import get_or_create_logger
 # typing
-from typing import Optional
+from typing import Dict
 
 
 class FastAPIHandler(FastAPIOriginal):
@@ -106,8 +106,8 @@ class ManagementRouter(APIRouter):
         result = {}
         for sessions in self.sql_session.query(SessionBase).all():
             result[sessions.id] = sessions.__dict__
-            result[sessions.id]["api_request"]: dict = json.loads(base64.b64decode(result[sessions.id]["api_request"]).decode('utf-8'))
-            result[sessions.id]["prompt_template"]: dict = json.loads(base64.b64decode(result[sessions.id]["prompt_template"]).decode('utf-8'))
+            result[sessions.id]["api_request"] = json.loads(base64.b64decode(result[sessions.id]["api_request"]).decode('utf-8'))
+            result[sessions.id]["prompt_template"] = json.loads(base64.b64decode(result[sessions.id]["prompt_template"]).decode('utf-8'))
         return result
 
     async def _api_object_store_flush(self, request: Request, action: str, session_id: str, asset_name: str = "object_store"):
@@ -117,8 +117,8 @@ class ManagementRouter(APIRouter):
             result = {}
             for sessions in self.sql_session.query(SessionBase).all():
                 result[sessions.id] = sessions.__dict__
-                result[sessions.id]["api_request"]: dict = json.loads(base64.b64decode(result[sessions.id]["api_request"]).decode('utf-8'))
-                result[sessions.id]["prompt_template"]: dict = json.loads(base64.b64decode(result[sessions.id]["prompt_template"]).decode('utf-8'))
+                result[sessions.id]["api_request"] = json.loads(base64.b64decode(result[sessions.id]["api_request"]).decode('utf-8'))
+                result[sessions.id]["prompt_template"] = json.loads(base64.b64decode(result[sessions.id]["prompt_template"]).decode('utf-8'))
             return result
 
         if action == "flush":
@@ -133,8 +133,8 @@ class ManagementRouter(APIRouter):
             result = {}
             for sessions in self.sql_session.query(SessionBase).all():
                 result[sessions.id] = sessions.__dict__
-                result[sessions.id]["api_request"]: dict = json.loads(base64.b64decode(result[sessions.id]["api_request"]).decode('utf-8'))
-                result[sessions.id]["prompt_template"]: dict = json.loads(base64.b64decode(result[sessions.id]["prompt_template"]).decode('utf-8'))
+                result[sessions.id]["api_request"] = json.loads(base64.b64decode(result[sessions.id]["api_request"]).decode('utf-8'))
+                result[sessions.id]["prompt_template"] = json.loads(base64.b64decode(result[sessions.id]["prompt_template"]).decode('utf-8'))
             return result
 
         else:

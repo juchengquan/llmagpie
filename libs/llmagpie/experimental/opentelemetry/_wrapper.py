@@ -1,6 +1,12 @@
 import os
 import wrapt
 import json
+from asyncio import (
+    as_completed,
+    create_task,
+    run as asyncio_run,
+)
+
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcessor, ConsoleSpanExporter
@@ -180,7 +186,6 @@ else:
 if __name__ == "__main__":
     from abc import abstractmethod
     import uuid
-    import asyncio
 
     class A:
         _id = uuid.uuid4().hex
@@ -208,11 +213,11 @@ if __name__ == "__main__":
             task_list = []
             for cls in clses:
                 task_list.append(
-                    asyncio.create_task(cls.execute(*args, **kwargs))
+                    create_task(cls.execute(*args, **kwargs))
                 )
-            # for coro in asyncio.as_completed(task_list):
+            # for coro in as_completed(task_list):
             #     _ = await coro
             return {**kwargs}
 
 
-    asyncio.run(C().execute([B(), BB(), B()], k=1))
+    asyncio_run(C().execute([B(), BB(), B()], k=1))

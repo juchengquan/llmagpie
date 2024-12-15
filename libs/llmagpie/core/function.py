@@ -1,11 +1,9 @@
-# import asyncio
 # import uuid
 # import time
 from inspect import getfullargspec, signature, _empty
 from pydantic import BaseModel, Field, create_model
 # from pydantic._internal._model_construction import ModelMetaclass
 # from functools import wraps
-# from asyncio import create_task
 from typing import Type, Callable, Any, cast, Type, Dict, Union, Annotated, get_origin
 
 
@@ -17,6 +15,7 @@ class _SchemaConfig:
     def json_schema_extra(schema: dict[str, Any], model) -> None:
         for prop in schema.get('properties', {}).values():
             prop.pop('title', None)
+
 
 def create_schema_from_types(
     name: str,
@@ -48,7 +47,6 @@ def create_schema_from_types(
         fields[p_name] = (p_type, p_field)
     return_schema = create_model(name + "_Output", **fields, __config__=_SchemaConfig)  # type: ignore
     return return_schema
-
 
 def create_schema_from_function(
     function: Callable,

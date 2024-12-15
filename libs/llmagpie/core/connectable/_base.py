@@ -1,21 +1,23 @@
 from __future__ import annotations
-# import os
+
 import uuid
-import inspect
-import asyncio
+from asyncio import get_running_loop, new_event_loop
 from logging import Logger
 
-from pydantic import Field, BaseModel, PrivateAttr, computed_field
+from pydantic import Field, BaseModel, PrivateAttr
 from pydantic._internal._model_construction import ModelMetaclass
 
 from deprecated import deprecated
 from llmagpie.core.logging import get_or_create_logger
 # typing
-# from llmagpie.core.nodes.disposable import BaseConnectDisposable
-from typing import List, Dict, Union, Awaitable, Set, Literal, Optional, Generator, Callable, AsyncGenerator, cast
+from typing import List, Dict, Union, Set, Literal, Optional, Generator, Callable, AsyncGenerator, cast
 from abc import abstractmethod
 from enum import Enum
 from llmagpie.core.state import BaseState, InternalDictState
+
+from llmagpie.core.utilities.async_to_sync import (
+    exec_in_event_loop, exec_in_separated_thread
+)
 
 class _MetaFoo(ModelMetaclass):
     @property
@@ -35,6 +37,9 @@ class _FunctionSchema(BaseModel):
 class FunctionSchema(BaseModel):
     internal: _FunctionSchema = Field(default_factory=_FunctionSchema)
     external: _FunctionSchema = Field(default_factory=_FunctionSchema)
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 class _RunningStatus(Enum):
     INACTIVE = 0
@@ -107,7 +112,6 @@ class BaseConnectDisposable(BaseModel):
         return self
 
 
-
 class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
     """This is base connectable including node and pipeline"""  # TODO
     class Config:
@@ -127,7 +131,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
         
     _input_keys_binded: Set[str] = set()
     # input binded keys
-    _input_keys_nodes_map: Dict[str, str] = {}
+    _input_keys_nodes_map: Dict[str, List[str]] = {}
     # input keys of nodes map
 
     # PRIVATE
@@ -178,7 +182,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
         raise NotImplementedError
 
     @abstractmethod
-    async def event_on_execution(self,
+    async def async_event_on_execution(self,
         inputs: Optional[Dict],
         session_id: str,
         **kwargs
@@ -253,36 +257,47 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
         inputs: Dict,
         session_id: Optional[str] = None,
         **kwargs
-    )-> Union[Generator[Dict], Dict]:
+    )-> Union[Generator, Dict]:
+        try:
+            _thread_mode = False
+            _is_new_loop = False
+            aioloop = get_running_loop() # if there is not, go to RuntimeError
+            if aioloop and aioloop.is_running():
+                _thread_mode = True
+                raise RuntimeError
+        except RuntimeError:
+            _is_new_loop = True
+            aioloop = new_event_loop()
+                
         session_id = uuid.uuid4().hex if not session_id else session_id
-        
         try:
             if self.connectable_type == "Pipeline":
                 assert getattr(self, "is_compiled", None), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
             _inputs = self.precheck(session_id, inputs)
-        except (BaseException, Exception) as exc:
-            self._error_callback(session_id, exc)
-
-        try:
+            
             async_result = cast(AsyncGenerator,
-                self.event_on_execution(
+                self.async_event_on_execution(
                     inputs=_inputs,
                     session_id=session_id,
                     **kwargs
                 )
             )
+        except (BaseException, Exception) as exc:
+            self._error_callback(session_id, exc)
 
-            loop = asyncio.get_event_loop()
-            while True:
-                try:
-                    yield loop.run_until_complete(async_result.__anext__())
-                except StopAsyncIteration:
-                    break
+        try:
+            if _thread_mode:
+                yield from exec_in_separated_thread(async_generator=async_result, loop=aioloop)
+            else:
+                yield from exec_in_event_loop(async_generator=async_result, loop=aioloop)
+                        
+            if _is_new_loop:
+                aioloop.close()
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
         finally:
             self.clean_states(session_id)
-
+ 
     async def async_invoke(
         self,
         inputs: Dict,
@@ -290,21 +305,24 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
         **kwargs
     ) -> AsyncGenerator:
         session_id = uuid.uuid4().hex if not session_id else session_id
-        
         try:
             if self.connectable_type == "Pipeline":
                 assert getattr(self, "is_compiled"), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
             _inputs = self.precheck(session_id, inputs)
+            
+            async_result = cast(AsyncGenerator,
+                self.async_event_on_execution(
+                    inputs=_inputs,
+                    session_id=session_id,
+                    **kwargs
+                )
+            )
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
-        
+            
         try:
-            async_result = self.event_on_execution(
-                inputs=_inputs,
-                session_id=session_id,
-                **kwargs
-            )
-            async for res in cast(AsyncGenerator, async_result):
+            # 'yield from' not allowed in an async function
+            async for res in async_result:
                 yield res
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)

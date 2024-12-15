@@ -26,6 +26,19 @@ class BaseNode(BaseConnectable):
     is_binded: bool = False
 
     def _validate(self):  # TODO: may need to change function name
+        """
+        Validates the binding status of the node and ensures that all required inputs are bound.
+
+        This method performs the following checks:
+        1. Ensures that the node has not already been bound to another pipeline.
+        2. Marks the node as bound.
+        3. If the node is not a start node, it checks that all required input parameters are bound 
+           and that no unknown keys are bound.
+
+        Raises:
+            AssertionError: If the node has already been bound to another pipeline.
+            AssertionError: If the required input parameters are not fully bound or if unknown keys are bound.
+        """
         assert not self.is_binded, "The node has been binded to another pipeline."
         self.is_binded = True
         
@@ -84,10 +97,7 @@ class BaseNode(BaseConnectable):
             raise exc
 
         try:
-            _output_values = self.async_call(**kwargs) # type: ignore
-            if isawaitable(_output_values):
-                _output_values: dict = await _output_values
-
+            _output_values = await self.async_call(**kwargs) # type: ignore
             return _output_values
         except (Exception, BaseException) as exc:
             self.logger.error(f"Error: {str(exc)}")
@@ -113,13 +123,43 @@ class BaseNode(BaseConnectable):
 
         return _output_values
 
-    async def event_on_execution(
+    async def async_event_on_execution(
         self,
         inputs: Dict,
         session_id: str,
         **kwargs
     ) -> AsyncGenerator:
-        """EXECUTION when the node is triggered."""
+        """
+        Executes the node when it is triggered and yields the output values.
+
+        This method performs the following steps:
+        1. Logs the execution start.
+        2. Sets the running status to RUNNING.
+        3. Checks if the iteration limit has been reached.
+        4. Executes the node asynchronously with the provided inputs.
+        5. Increments the iteration counter.
+        6. Handles exceptions such as CancelledError and other BaseExceptions.
+        7. Yields the output values if they are a generator or a dictionary.
+        8. Calls the callback method to store the output values.
+        9. Logs the end of the yielding process.
+        10. Sets the running status to INACTIVE.
+        11. Handles GeneratorExit and other exceptions.
+        12. Increments the visited counter.
+
+        Args:
+            inputs (Dict): The input parameters for the node execution.
+            session_id (str): The session ID for tracking the execution.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            AsyncGenerator: An asynchronous generator that yields the output values.
+
+        Raises:
+            Exception: If the max_iteration_limit is reached.
+            CancelledError: If the task is cancelled.
+            GeneratorExit: If the generator is exited prematurely.
+            BaseException: For any other exceptions that occur during execution.
+        """
         try:
             self.logger.debug(f"EXECUTE -> {self.name}")
             self._running_status = _RunningStatus.RUNNING
@@ -128,7 +168,7 @@ class BaseNode(BaseConnectable):
             if self.iteration_counter[session_id] >= self.max_iteration_limit:
                 raise Exception("max_iteration_limit is reached.")
 
-            _output_values: Union[Dict, Generator[Dict]] = await self._execute(**inputs)
+            _output_values: Union[Dict, Generator, AsyncGenerator] = await self._execute(**inputs)
             self.iteration_counter[session_id] += 1
 
         except CancelledError as exc:
@@ -149,6 +189,17 @@ class BaseNode(BaseConnectable):
                     }
                 # only keep the last one
                 self._callback(session_id, _v)
+            elif isinstance(_output_values, AsyncGenerator):
+                async for _v in _output_values:
+                    yield {
+                        "_timestamp": time.time(),
+                        "_type": self.connectable_type,
+                        "value": _v,
+                        "node": self,
+                    }
+                # only keep the last one
+                self._callback(session_id, _v)
+            
             else: # isinstance(_output_values, Dict)
                 yield {
                     "_timestamp": time.time(),

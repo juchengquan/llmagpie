@@ -1,20 +1,19 @@
-from asyncio import create_task, Task
+from asyncio import Task
 from typing import (
-    AsyncIterator, TypeVar, 
-    # AsyncIterable, AsyncIterator, Collection, TypeVar,
-    # Sequence, Dict, Union, Optional, List, Callable,
+    AsyncIterator, TypeVar, Coroutine, Union
 )
+from asyncio import AbstractEventLoop
 
 _T = TypeVar("_T")
 
 async def _await_next(iterator: AsyncIterator[_T]) -> _T:
     return await iterator.__anext__()
 
-def _as_task(iterator: AsyncIterator[_T]) -> Task[_T]:
-    return create_task(_await_next(iterator))
+def _as_task(iterator: AsyncIterator[_T], loop: AbstractEventLoop) -> Task[_T]:
+    return loop.create_task(_await_next(iterator))
 
-def make_as_task(iterator) -> Task[_T]:
-    return _as_task(iterator) if isinstance(iterator, AsyncIterator) else create_task(iterator)
+def make_as_task(iterator: Union[AsyncIterator, Coroutine], loop: AbstractEventLoop) -> Task:
+    return _as_task(iterator, loop) if isinstance(iterator, AsyncIterator) else loop.create_task(iterator)
 
 def decompose_pipeline(dt: dict) -> dict:
     res = {}
