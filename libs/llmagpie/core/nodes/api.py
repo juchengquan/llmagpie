@@ -13,7 +13,10 @@ if sys.version_info.minor >= 11:
     from typing import Self
 else:
     from typing_extensions import Self
+    
+from deprecated import deprecated
 
+@deprecated
 class BaseServiceRetriever(BaseNode):
     service_endpoint: Optional[str] = None
     service_endpoint_name: Optional[str] = None
@@ -23,7 +26,7 @@ class BaseServiceRetriever(BaseNode):
         assert self.service_endpoint is not None or self.service_endpoint_name is not None, '"service_endpoint" and "service_endpoint_name" cannot be None at same time.'
         return self
 
-
+@deprecated
 class BaseFastAPIService(BaseNode):
     api_route: str
 
@@ -38,7 +41,7 @@ class BaseFastAPIService(BaseNode):
     async def api(self, request: Request, *args, **kwargs):
         """"""
 
-
+@deprecated
 class BaseFastAPIServiceWithCallback(BaseServiceRetriever):
     api_route: str
 

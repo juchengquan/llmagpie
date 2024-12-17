@@ -1,14 +1,15 @@
-from asyncio import get_event_loop
-from functools import wraps, partial
+from deprecated import deprecated
+from functools import partial, wraps
+
 from llmagpie.core.function import create_schema_from_function, create_schema_from_types
 from llmagpie.core.utilities.marshal_terable import post_run
 # typing
-from pydantic import BaseModel, create_model, Field
-from typing import Union, Optional, Callable, Dict, Awaitable, Callable, Generator, AsyncGenerator
-from dataclasses import dataclass
-from deprecated import deprecated
-
-
+from typing import (
+    cast, Type,
+    Union, Optional, Callable, Dict, Awaitable, Callable, Generator, AsyncGenerator
+)
+  
+@deprecated
 def socket_types(run_func: Optional[Callable] = None, **types):
     # class _SchemaConfig:
     #     extra: str = "forbid"
@@ -25,7 +26,7 @@ def socket_types(run_func: Optional[Callable] = None, **types):
         # TODO
         # method_name = run_func.__name__
         # if method_name not in ("run", "run_async"):
-        #     raise Exception("'socket_types' decorator can only be used on 'run' and 'run_async' methods")
+        #     raise Exception("decorator can only be used on 'run' and 'run_async' methods")
         input_model = create_schema_from_function(run_func, in_class=True)   # TODO: in_class
         output_model = create_schema_from_types(run_func.__name__, types)
 
@@ -35,6 +36,7 @@ def socket_types(run_func: Optional[Callable] = None, **types):
             # TODO 0926
             inputs = input_model(**kwargs)  # type: ignore
             # res = run_func(inputs.model_dump())
+            
             res = run_func(*args, **inputs.__dict__)  # TODO 1114
             # res = run_func(*args, **inputs.model_dump())  # Note: need to take args as it includes `self`
             if isinstance(res, Awaitable):
@@ -42,8 +44,9 @@ def socket_types(run_func: Optional[Callable] = None, **types):
 
             return post_run(res, output_model)
         # set up searchable object
-        setattr(_wrapper, "_input_model", input_model)
-        setattr(_wrapper, "_output_model", output_model)
+        setattr(_wrapper, "input_model_schema", input_model)
+        setattr(_wrapper, "output_model_schema", output_model)
+        
         return _wrapper
 
     if run_func:
@@ -52,16 +55,12 @@ def socket_types(run_func: Optional[Callable] = None, **types):
     return _func_wrapper
 
 
-
 @deprecated
 def conditional(run_func: Optional[Callable] = None, **types):
     # return type of conditional function must be boolean.
     def _decorator(run_func):
         # TODO
         # method_name = run_func.__name__
-        # if method_name not in ("run", "run_async"):
-        #     raise Exception("'socket_types' decorator can only be used on 'run' and 'run_async' methods")
-
         input_model = create_schema_from_function(run_func, in_class=False)  # TODO: in_class
 
         # TODO async function

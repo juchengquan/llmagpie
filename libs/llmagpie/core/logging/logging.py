@@ -74,24 +74,28 @@ Formatter = CustomFormatter(LOGGING_FORMAT, datefmt="%Y-%m-%d %H:%M:%S,%f")
 def get_or_create_logger(logger_name: str = "default", file_path: Optional[str] = None):
     """Get the logger with name or create if it does not exist.
     """
-    if not file_path:
-        log_path = os.getenv("LOG_DIR", pathlib.Path().resolve().parent / "logs")
-        os.makedirs(log_path, exist_ok=True)
-        # file_path = "/home/cdsw/logs/info.log"
-        file_path = f'{log_path}/info.log'
     # Setup streamhandler which outputs to console
     streamhandler = logging.StreamHandler()
     streamhandler.setLevel(logging.INFO)
     streamhandler.setFormatter(Formatter)
 
-    filehandler = TimedRotatingFileHandler(
-        filename=file_path,
-        interval=1,
-        when="d"
-    )
-    filehandler.setLevel(logging.INFO)
-    filehandler.setFormatter(Formatter)
+    if not file_path:
+        log_path = os.getenv("LOG_DIR")  # pathlib.Path().resolve().parent / "logs")
+        if log_path:
+            os.makedirs(log_path, exist_ok=True)
+            file_path = f'{log_path}/info.log'
+        
+            filehandler = TimedRotatingFileHandler(
+                filename=file_path,
+                interval=1,
+                when="d"
+            )
+            filehandler.setLevel(logging.INFO)
+            filehandler.setFormatter(Formatter)
 
-    logger = DefaultLogger(name=logger_name, handlers=[streamhandler, filehandler])
-
-    return logger
+            logger = DefaultLogger(name=logger_name, handlers=[streamhandler, filehandler])
+        else:
+            logger = DefaultLogger(name=logger_name, handlers=[streamhandler])
+        return logger
+    return DefaultLogger(name=logger_name, handlers=[streamhandler])
+            

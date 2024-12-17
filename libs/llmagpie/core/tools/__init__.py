@@ -1,8 +1,7 @@
-from ._base import Tool, as_tool
-from .tools_node import ToolsNode
+from ._base import BaseTool, ToolsNode
+
 
 __all__ = [
-    "Tool",
-    "as_tool",
+    "BaseTool",
     "ToolsNode",
 ]

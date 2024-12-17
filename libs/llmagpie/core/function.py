@@ -8,15 +8,14 @@ from typing import Type, Callable, Any, cast, Type, Dict, Union, Annotated, get_
 
 
 class _SchemaConfig:
-    extra: str = "forbid"
+    extra: str = "ignore"
     arbitrary_types_allowed: bool = True
-
+        
     @staticmethod
     def json_schema_extra(schema: dict[str, Any], model) -> None:
         for prop in schema.get('properties', {}).values():
             prop.pop('title', None)
-
-
+        
 def create_schema_from_types(
     name: str,
     types: Dict
@@ -45,8 +44,7 @@ def create_schema_from_types(
         p_field = Field(default=None, description=p_description)
     
         fields[p_name] = (p_type, p_field)
-    return_schema = create_model(name + "_Output", **fields, __config__=_SchemaConfig)  # type: ignore
-    return return_schema
+    return create_model(name + "_Output", **fields, __config__=_SchemaConfig)  # type: ignore
 
 def create_schema_from_function(
     function: Callable,

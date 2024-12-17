@@ -10,7 +10,7 @@ from pydantic._internal._model_construction import ModelMetaclass
 from deprecated import deprecated
 from llmagpie.core.logging import get_or_create_logger
 # typing
-from typing import List, Dict, Union, Set, Literal, Optional, Generator, Callable, AsyncGenerator, cast
+from typing import List, Dict, Union, Set, Literal, Optional, Generator, Callable, AsyncGenerator, cast, final
 from abc import abstractmethod
 from enum import Enum
 from llmagpie.core.state import BaseState, InternalDictState
@@ -120,6 +120,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
     
     _id: str = PrivateAttr(default_factory=lambda: uuid.uuid4().hex)
     name: str = Field()
+    description: str = Field(default="")
     connectable_type: Literal["Pipeline", "Tool", "BaseNode"]
     logger: Logger = Field(default_factory=lambda: get_or_create_logger(logger_name="default"))
     is_start: bool = Field(default=True, description="Indicator that if the component is a start node.")
@@ -252,6 +253,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
     
+    @final
     def invoke(
         self,
         inputs: Dict,

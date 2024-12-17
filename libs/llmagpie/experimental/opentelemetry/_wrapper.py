@@ -211,9 +211,9 @@ if __name__ == "__main__":
     class C(A):
         async def _run(self, clses, *args, **kwargs):
             task_list = []
-            for cls in clses:
+            for c in clses:
                 task_list.append(
-                    create_task(cls.execute(*args, **kwargs))
+                    create_task(c.execute(*args, **kwargs))
                 )
             # for coro in as_completed(task_list):
             #     _ = await coro

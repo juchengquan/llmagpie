@@ -4,14 +4,13 @@ import time
 from httpx import AsyncClient, Client
 from openai import OpenAI
 
-from llmagpie.core.utilities.wrapper import socket_types
-from llmagpie.core.nodes import BaseNode
-from llmagpie.core.tools import Tool, ToolsNode
+from llmagpie.core.nodes import BaseNode, class_as_node
+from llmagpie.core.tools import BaseTool, ToolsNode
 # typing
 from typing import List, Dict, Any, Optional
-from pydantic import Field
 
 
+@class_as_node(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
 class OpenAIChatCompletionWithToolCall(BaseNode):
     client: OpenAI
     tools_node: Optional[ToolsNode] = None
@@ -32,7 +31,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         )
         super().__init__(client=client, *args, **kwargs)
 
-    def bind_tools(self, tools: List[Tool]):
+    def bind_tools(self, tools: List[BaseTool]):
         self.tools_node = ToolsNode(name=self.name + "_ToolsNode", tools=tools) # TODO
         return self
 
@@ -55,12 +54,13 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         post_response = get_llm_answer(response)
 
         if self.tools_node:
-            post_response["tool_calls"] = await self.tools_node.async_call(post_response["tool_calls"])
+            post_response["tool_calls"] = (await self.tools_node.async_call_(tool_calls_list=post_response["tool_calls"])).get("tool_calls_list", [])
         elif direct_tool_outputs:
             self.logger.warning("Tools is not binded but `direct_tool_outputs` is set True.... omit")
             direct_tool_outputs = False
         else:
             post_response["tool_calls"] = [] 
+        
         return post_response, direct_tool_outputs
 
     def _add_messages_from_tools(
@@ -87,10 +87,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
                 "content": json.dumps(ele["output"]),
                 "tool_call_id": ele["id"],
             })
-        
-    @socket_types(
-        content=str, tool_calls=list,
-    )
+    
     async def async_call(
         self,
         model: str,
@@ -104,6 +101,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         # compose new call to LLM
         temp_counter = 0
         while (not direct_tool_outputs) and post_response["tool_calls"] and temp_counter < 3:
+            print("YIELD: ", post_response)
             yield post_response
             self._add_messages_from_tools(
                 post_response, messages, direct_tool_outputs
@@ -112,6 +110,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             temp_counter += 1
         yield post_response
 
+@class_as_node(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
 class OpenAIChatCompletionStream(BaseNode):
     client: OpenAI
     tools_node: Optional[ToolsNode] = None
@@ -133,13 +132,10 @@ class OpenAIChatCompletionStream(BaseNode):
 
         super().__init__(client=client, *args, **kwargs)
 
-    def bind_tools(self, tools: List[Tool]):
+    def bind_tools(self, tools: List[BaseTool]):
         self.tools_node = ToolsNode(tools=tools)
         return self
 
-    @socket_types(
-        content=str, tool_calls=list,
-    )
     async def async_call(
         self,
         model: str,

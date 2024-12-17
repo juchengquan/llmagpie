@@ -1,162 +1,97 @@
-import functools
-from asyncio import (
-    get_running_loop,
-    new_event_loop,
-    run as asyncio_run
-)
-from abc import ABC, abstractmethod
-from pydantic import BaseModel, create_model, Field
-from inspect import getfullargspec, iscoroutinefunction, isasyncgenfunction
-from typing import (cast, Any, Type, Literal, Union, Optional, Callable, Awaitable, Dict, Tuple, Callable, Generator, AsyncGenerator)
-from functools import wraps
+# from collections import OrderedDict
+import json
+from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
+from llmagpie.core.nodes import BaseNode, class_as_node
+# typing
+from typing import List, Dict
 
-from llmagpie.core.function import create_schema_from_function, create_schema_from_types
-from llmagpie.core.utilities.marshal_terable import post_run
-from llmagpie.core.utilities.async_to_sync import (
-    exec_generator_in_event_loop, exec_generator_in_separated_thread
-)
 
-class BaseTool(BaseModel, ABC):
+class BaseTool(BaseNode):
     class Config:
         extra: str = "forbid"
         arbitrary_types_allowed: bool = True
 
-    class _ArgsSchemaPlaceholder(BaseModel):
-        pass
-
-    name: str
-    """The unique name of the tool that clearly communicates its purpose."""
-    description: str
-    """Used to tell the model how/when/why to use the tool."""
-    args_schema: Type[BaseModel] = Field(default_factory=_ArgsSchemaPlaceholder)
-    """The schema for the arguments that the tool accepts."""
-    return_schema: Type[BaseModel]
-    """The schema for the arguments that the tool returns."""
-    function: Any
-    """The function that will be executed when the tool is called."""
+    # name: str
+    # """The unique name of the tool that clearly communicates its purpose."""
+    # description: str = Field(default="")
+    # """Used to tell the model how/when/why to use the tool."""
+    # async_call_: Callable
+    # """The function that will be executed when the tool is called."""
+    # input_model_schema: Type[BaseModel]
+    # """The schema for the arguments that the tool accepts."""
+    # output_model_schema: Type[BaseModel]
     # async_function:  Optional[Callable] = None
     # """The async function that will be executed when the tool is called."""
-    function_type: Literal["sync", "async"]
+    # function_type: Literal["sync", "async"]
     
-    def _generate_description_openai(self):
-        tool_schema = {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.args_schema.schema()
-            }
+    # def _generate_description_openai(self):
+    #     tool_schema = {
+    #         "type": "function",
+    #         "function": {
+    #             "name": self.name,
+    #             "description": self.description,
+    #             "parameters": self.input_model_schema.schema()
+    #         }
+    #     }
+    #     return tool_schema
+
+
+@class_as_node(func_name="bolt", outputs={"tool_calls_list": List[Dict]})
+class ToolsNode(BaseNode):
+    class Config:
+        extra = "forbid"
+        arbitrary_types_allowed: bool = True
+        
+    tools: List[BaseNode]
+    tools_with_mapping: Dict[str, BaseNode]
+
+    def __init__(self, *args, **kwargs):
+        tools_with_mapping = {
+            ele.name: ele for ele in kwargs.get("tools", [])
         }
-        return tool_schema
-
-class Tool(BaseTool):
-    async def _stream(self, input: dict):
-        res = self.function(**input)
-        if isinstance(res, Awaitable):
-            res = await res
         
-        if isinstance(res, Generator):
-            for e in res:
-                yield e
-        elif isinstance(res, AsyncGenerator):
-            async for e in res:
-                yield e
-        elif isinstance(res, Dict):
-            yield res
-        else:
-            raise TypeError("WTF")       
-        
-    def run(self, input: dict):
-        res = self.stream(input)
-        last_res = None
-        for e in res:
-            last_res = e
-        return last_res
-    
-    def stream(self, input: dict):
-        async_result = cast(AsyncGenerator, self._stream(input))
-        
-        try:
-            _thread_mode = False
-            _is_new_loop = False
-            aioloop = get_running_loop() # if there is not, go to RuntimeError
-            if aioloop and aioloop.is_running():
-                _thread_mode = True
-                raise RuntimeError
-        except RuntimeError:
-            _is_new_loop = True
-            aioloop = new_event_loop()
-        
-        try:
-            if _thread_mode:
-                yield from exec_generator_in_separated_thread(async_generator=async_result, loop=aioloop)
-            else:
-                yield from exec_generator_in_event_loop(async_generator=async_result, loop=aioloop)
+        super().__init__(
+            tools_with_mapping=tools_with_mapping,
+            *args,
+            **kwargs
+        )
 
-            if _is_new_loop:
-                aioloop.close()
-        except Exception as exc:
-            raise exc
-  
-    async def async_stream(self, input: dict):
-        return self._stream(input)
+    def _generate_openai_schema(self):
+        return [ele._generate_description_openai() for ele in self.tools]
 
-    async def async_run(self, input: dict):
-        res = self._stream(input)
-        last_res = None
-        async for e in res:
-            last_res = e
-        return last_res    
+    def __repr__(self):
+        return f"{list(self.tools_with_mapping.keys())}"
 
-# decorator
-def as_tool(run_func: Optional[Callable] = None, name: Optional[str] = None, **types):
-    def _make_with_name(_name) -> Callable:
-        def _make_tool(run_func: Callable) -> BaseTool:
-            args = getfullargspec(run_func)
-            if args.varargs or args.varkw:
-                raise ValueError("arg of kwargs are not allowed in function definition.")
-            if not run_func.__doc__:
-                raise ValueError("Tools does not have description.")
+    def __str__(self):
+        return self.__repr__()
 
-            input_model = create_schema_from_function(run_func)
-            output_model = create_schema_from_types(run_func.__name__, types)
+    async def bolt(self, tool_calls_list: List[Dict]):
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for _i, ele in enumerate(tool_calls_list):
+                if ele.get("function", None):
+                    function_args = ele["function"]
+                    ele["id"] = ele.get("id", uuid4().hex)
+                    
+                    try:
+                        _tool = self.tools_with_mapping[function_args["name"]]
+                        args = function_args["arguments"]
+                        if isinstance(args, str):
+                            args = json.loads(args)
+                        
+                        self.logger.info(f"Running tool: {_tool.name}")
+                        future = executor.submit(_tool.run, **args)
+                        
+                    except:
+                        future = executor.submit(lambda: Exception("Function argument is wrong"))
+                    ele["_f"] = future
+             
+            _result = [e["_f"].result() if not e["_f"].exception() else e["_f"].exception() for e in tool_calls_list]
+            for ele, res in zip(tool_calls_list, _result):
+                ele.update({
+                    "output": res if not isinstance(res, Exception) else None,
+                    "error": res if isinstance(res, Exception) else None,
+                })
+                ele.pop("_f")
 
-            def _func_wrapper(run_func):
-                @wraps(run_func)
-                def _wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
-                    # TODO 0926
-                    inputs = input_model(**kwargs)
-                    # res = run_func(inputs.model_dump())
-                    res = run_func(*args, **inputs.__dict__)
-                    # if isinstance(res, Awaitable):
-                    #     res = await res
-                    return post_run(res, output_model)
-                
-                @wraps(run_func)
-                async def _async_wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
-                    # TODO 0926
-                    inputs = input_model(**kwargs)
-                    # res = run_func(inputs.model_dump())
-                    res = run_func(*args, **inputs.__dict__)
-                    if isinstance(res, Awaitable):
-                        res = await res
-                    return post_run(res, output_model)
-
-                if iscoroutinefunction(run_func) or isasyncgenfunction(run_func):
-                    return _async_wrapper
-                return _wrapper 
-
-            return Tool(
-                name=str(_name) if _name else run_func.__name__,
-                description=run_func.__doc__,
-                function=_func_wrapper(run_func),
-                function_type="async" if iscoroutinefunction(run_func) or isasyncgenfunction(run_func) else "sync",
-                args_schema=input_model,
-                return_schema=output_model,
-            )
-
-        return _make_tool
-
-    if run_func:
-        return _make_with_name(name)(run_func)
-    return _make_with_name(name)
+        return tool_calls_list

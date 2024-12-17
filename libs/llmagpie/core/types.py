@@ -18,4 +18,8 @@ class StateResponse(BaseModel):
     value: Dict
     node: BaseConnectable
     
-
+    def to_dict(self, recursive: bool = False):
+        if recursive:
+            return self.model_dump()
+        else:
+            return self.__dict__

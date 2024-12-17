@@ -1,31 +1,129 @@
 from __future__ import annotations
 # import os
-import uuid
+# import uuid
 import time
+from functools import partial, wraps
 
-from inspect import isawaitable
-from abc import abstractmethod
 from asyncio import CancelledError
+from asyncio import (
+    get_running_loop,
+    new_event_loop
+)
 
 from pydantic import BaseModel, Field, PrivateAttr, model_validator, computed_field
 from pydantic._internal._model_construction import ModelMetaclass
 
+from inspect import getfullargspec, iscoroutinefunction, isasyncgenfunction
+
+from llmagpie.core.function import create_schema_from_function, create_schema_from_types
+from llmagpie.core.utilities.marshal_terable import post_run
 from llmagpie.core.connectable import BaseConnectable, FunctionSchema
 from llmagpie.core.connectable._base import _RunningStatus
+from llmagpie.core.types import StateResponse
+from llmagpie.core.utilities.async_to_sync import (
+    exec_generator_in_event_loop, exec_generator_in_separated_thread
+)
 # EXPERIMENTAL
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer
-from llmagpie.core.types import StateResponse
+
 # typing
-from typing import List, Dict, Union, Awaitable, Set, Optional, Callable, Generator, AsyncGenerator, Coroutine
+from typing import (
+    cast, final, ClassVar, Type,
+    Union, Optional, Callable, Awaitable, Dict, Callable, Generator, AsyncGenerator)
 
 
 class BaseNode(BaseConnectable):
     class Config:
         extra = "forbid"
+        
+    class _ArgsSchemaPlaceholder(BaseModel):
+        pass
 
     connectable_type: str = "BaseNode"
     is_binded: bool = False
+    
+    async_call_: ClassVar[Callable]
+    input_model_schema: ClassVar[BaseModel] = Field(default_factory=_ArgsSchemaPlaceholder)
+    """The schema for the arguments that the tool accepts."""
+    output_model_schema: ClassVar[BaseModel]
+    """The schema for the arguments that the tool returns."""
+    
+    def _generate_description_openai(self):
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.input_model_schema.schema()
+            }
+        }
+        return tool_schema
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+            
+    @final
+    async def _async_stream(self, **inputs):
+        res = self.async_call_(**inputs)
+        if isinstance(res, Awaitable):
+            res = await res
+        
+        if isinstance(res, Generator):
+            for e in res:
+                yield e
+        elif isinstance(res, AsyncGenerator):
+            async for e in res:
+                yield e
+        elif isinstance(res, Dict):
+            yield res
+        else:
+            raise TypeError("WTF")       
+    
+    @final
+    def run(self, **inputs):
+        res = self.stream(**inputs)
+        last_res = None
+        for e in res:
+            last_res = e
+        return last_res
+    
+    @final
+    def stream(self, **inputs):
+        async_result = cast(AsyncGenerator, self._async_stream(**inputs))
+        try:
+            _thread_mode = False
+            _is_new_loop = False
+            aioloop = get_running_loop() # if there is not, go to RuntimeError
+            if aioloop and aioloop.is_running():
+                _thread_mode = True
+                raise RuntimeError
+        except RuntimeError:
+            _is_new_loop = True
+            aioloop = new_event_loop()
+        
+        try:
+            if _thread_mode:
+                yield from exec_generator_in_separated_thread(async_generator=async_result, loop=aioloop)
+            else:
+                yield from exec_generator_in_event_loop(async_generator=async_result, loop=aioloop)
 
+            if _is_new_loop:
+                aioloop.close()
+        except Exception as exc:
+            raise exc
+    
+    @final
+    async def async_stream(self, **inputs):
+        return self._async_stream(**inputs)
+
+    @final
+    async def async_run(self, **inputs):
+        res = self._async_stream(**inputs)
+        last_res = None
+        async for e in res:
+            last_res = e
+        return last_res    
+    
     def _validate(self):  # TODO: may need to change function name
         """
         Validates the binding status of the node and ensures that all required inputs are bound.
@@ -54,12 +152,12 @@ class BaseNode(BaseConnectable):
         self.func_schema = FunctionSchema(**{
             "internal": {
                 "input": {
-                    "required": self.async_call._input_model.schema()["required"],
-                    "all": self.async_call._input_model.schema()["properties"],
+                    "required": self.input_model_schema.schema()["required"],
+                    "all": self.input_model_schema.schema()["properties"],
                 },
                 "output": {
                     "required": [],
-                    "all": self.async_call._output_model.schema()["properties"],
+                    "all": self.output_model_schema.schema()["properties"],
                 },
             },
             # "external": {
@@ -75,14 +173,11 @@ class BaseNode(BaseConnectable):
         })
         return self
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    
     # CHILDREN PROCESS
-    @abstractmethod
-    async def async_call(self):
-        """async call"""
-        raise NotImplementedError
+    # @abstractmethod
+    # async def async_call_(self):
+    #     """async call"""
+    #     raise NotImplementedError
 
     @opentelemetry_tracer
     async def _async_execute(self, **inputs):
@@ -104,7 +199,7 @@ class BaseNode(BaseConnectable):
             raise exc
 
         try:
-            _output_values = await self.async_call(**inputs) # type: ignore
+            _output_values = await self.async_call_(**inputs) # type: ignore
             return _output_values
         except (Exception, BaseException) as exc:
             self.logger.error(f"Error: {str(exc)}")
@@ -145,7 +240,6 @@ class BaseNode(BaseConnectable):
             self.logger.debug(f"EXECUTE -> {self.name}")
             self._running_status = _RunningStatus.RUNNING
             _output_values: Union[Dict, Generator, AsyncGenerator] = await self._async_execute(**inputs)
-
         except CancelledError as exc:
             exc = Exception(f"{self.name}: The task has been cancelled: {exc}")
             self._error_callback(session_id, exc)
