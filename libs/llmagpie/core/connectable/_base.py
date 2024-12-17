@@ -16,7 +16,7 @@ from enum import Enum
 from llmagpie.core.state import BaseState, InternalDictState
 
 from llmagpie.core.utilities.async_to_sync import (
-    exec_in_event_loop, exec_in_separated_thread
+    exec_generator_in_event_loop, exec_generator_in_separated_thread
 )
 
 class _MetaFoo(ModelMetaclass):
@@ -251,13 +251,13 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
             return inputs
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
-
+    
     def invoke(
         self,
         inputs: Dict,
         session_id: Optional[str] = None,
         **kwargs
-    )-> Union[Generator, Dict]:
+    )-> Generator:
         try:
             _thread_mode = False
             _is_new_loop = False
@@ -287,9 +287,9 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
 
         try:
             if _thread_mode:
-                yield from exec_in_separated_thread(async_generator=async_result, loop=aioloop)
+                yield from exec_generator_in_separated_thread(async_generator=async_result, loop=aioloop)
             else:
-                yield from exec_in_event_loop(async_generator=async_result, loop=aioloop)
+                yield from exec_generator_in_event_loop(async_generator=async_result, loop=aioloop)
                         
             if _is_new_loop:
                 aioloop.close()
@@ -321,9 +321,7 @@ class BaseConnectable(BaseStateStore): # , metaclass=_MetaFoo):
             self._error_callback(session_id, exc)
             
         try:
-            # 'yield from' not allowed in an async function
-            async for res in async_result:
-                yield res
+            return async_result
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
         finally:

@@ -8,8 +8,6 @@ import sys
 from asyncio import FIRST_COMPLETED, wait, CancelledError, get_running_loop
 from opentelemetry import trace, context
 from pydantic import BaseModel, Field
-from pydantic._internal._model_construction import ModelMetaclass
-
 
 from llmagpie.core.dag import SingleDAG
 from llmagpie.core.connectable import BaseConnectable, FunctionSchema
@@ -17,7 +15,8 @@ from llmagpie.core.connectable import BaseConnectable, FunctionSchema
 from llmagpie.experimental.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
 from llmagpie.core.connectable._base import _RunningStatus
 from llmagpie.core.state import BaseState, InternalDictState
-from ._aux import make_as_task, decompose_pipeline, _as_task
+from llmagpie.core.types import StateResponse
+from ._aux import make_as_task, decompose_pipeline
 
 from typing import (
     cast,
@@ -37,12 +36,7 @@ class BasePipeline(BaseConnectable):
     
     is_compiled: bool = False
     
-    def __init__(
-        self,
-        # nodes: Union[Dict[str, BaseConnectable], Sequence[BaseConnectable]],
-        *args,
-        **kwargs,
-        ):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.add_nodes(self.nodes)
 
@@ -52,10 +46,13 @@ class BasePipeline(BaseConnectable):
         self.graph.validate()
         
         # cqju: for pipeline, its internal schema corresponds to the external schema of its components 
-        _dt_input, _dt_input_required, _dt_output = {}, [], {}
+        
+        # Generate pipeline input schema
+        _dt_input, _dt_input_required = {}, []
         for node in self.graph.head_nodes:
             node_obj = self.graph.nodes[node]["_obj"]
             
+            # Map external schema
             node_obj.func_schema.external.input.all = {
                 f"{node_obj.name}.{k}": v for k, v in node_obj.func_schema.internal.input.all.items()
             }
@@ -65,7 +62,9 @@ class BasePipeline(BaseConnectable):
                 f"{node_obj.name}.{k}" for k in node_obj.func_schema.internal.input.required
             }
             _dt_input_required += node_obj.func_schema.external.input.required
-            
+        
+        # Generate pipeline output schema
+        _dt_output: dict = {}
         for node in self.graph.tail_nodes:
             node_obj = self.graph.nodes[node]["_obj"]
             
@@ -81,18 +80,8 @@ class BasePipeline(BaseConnectable):
                     "all": _dt_input,
                 },
                 "output": {
-                    "required": [],
+                    # "required": [],
                     "all": _dt_output,
-                },
-            },
-            "external": {
-                "input": {
-                    "required": [],
-                    "all": {},
-                },
-                "output": {
-                    "required": [],
-                    "all": {},
                 },
             },
         })
@@ -118,10 +107,7 @@ class BasePipeline(BaseConnectable):
         node.pipeline = self
 
         if node._id not in self.graph.nodes:
-            self.graph.add_node(
-                node._id,
-                _obj=node,
-            )
+            self.graph.add_node(node._id, _obj=node)
             # self.binded_nodes[node_key] = node
             # self.binded_nodes[node._id] = node_key
             
@@ -209,7 +195,6 @@ class BasePipeline(BaseConnectable):
             for _child in root_nodes:
                 assert _child.is_start
                 if _child.input_state == {} and self.input_state.get(session_id, []):
-                    print("***self: ", self, _child)
                     try:
                         _child.input_state = self._flatten_history_object_store(session_id)
                     except Exception as exc:
@@ -338,8 +323,8 @@ class BasePipeline(BaseConnectable):
     ) -> AsyncGenerator:
         """EXECUTION when the node is triggered."""
         try:
-            aioloop = get_running_loop()
             assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
+            aioloop = get_running_loop()
             self._running_status = _RunningStatus.RUNNING
             if inputs:
                 # TODO cqju: uncomment to unlock opentelemetry
@@ -377,28 +362,29 @@ class BasePipeline(BaseConnectable):
                         node_name, node_id, iterator = next((t["node_name"], t["node_id"], t["iterator"]) for it, t in iterator_dict.items() if t["task"] == done_task)
                         
                         try:
-                            response = done_task.result()
+                            response: StateResponse = done_task.result()
                             if response:
                                 # IMPORTANT: save context before yield!
                                 current_ctx = context.get_current()
-                                _output_values: dict = response["value"]
-                                _parent = response["node"]
+                                _output_values: dict = response.value 
+                                _parent = response.node
                                 # This yield to the final output
-                                yield {
-                                    "_timestamp": time.time(),
-                                    "value": _output_values,
-                                    "node": _parent,
-                                }
+                                yield StateResponse(
+                                    timestamp=time.time(),
+                                    type=_parent.connectable_type,
+                                    value=_output_values,
+                                    node=_parent,
+                                )
                                 # TODO cqju: uncomment to unlock opentelemetry
                                 if OTEL_ENABLED:
                                     span.set_attributes({
-                                        f'component_output.value.{response["node"].name}': json.dumps(_output_values),  
+                                        f'component_output.value.{response.node.name}': json.dumps(_output_values),  
                                     })
                                 context.attach(current_ctx)
                             del response
 
                         except StopAsyncIteration: # 
-                            self.logger.debug(":StopAsyncIteration:")
+                            self.logger.debug(f"{node_name}: StopAsyncIteration")
                             del iterator_dict[iterator]
 
                             _parent = self.graph.nodes[node_id]["_obj"]
@@ -431,7 +417,6 @@ class BasePipeline(BaseConnectable):
                                                 "task": make_as_task(_asset["iterator"], aioloop)
                                             }
                                         })
-                                else: ...
                         except Exception as exc:
                             self._error_callback(session_id, exc)
                         else:

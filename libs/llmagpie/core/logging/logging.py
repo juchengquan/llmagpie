@@ -4,6 +4,7 @@ import logging
 import datetime
 import pathlib
 from logging.handlers import TimedRotatingFileHandler
+from typing import Optional, cast
 
 
 class CustomFormatter(logging.Formatter):
@@ -22,7 +23,7 @@ class CustomFormatter(logging.Formatter):
         dt = datetime.datetime.fromtimestamp(timestamp, tz=pytz.UTC)
         return dt.astimezone(pytz.timezone('Singapore'))
 
-    def formatTime(self, record: logging.LogRecord, datefmt: str = None):
+    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None):
         """Method to format log record timestamp to provided format if specified else iso format.
 
         Args:
@@ -32,7 +33,7 @@ class CustomFormatter(logging.Formatter):
         Returns:
             str: formatted timestamp.
         """
-        dt = self.converter(record.created)
+        dt = self.converter( cast(int, record.created) )
         if datefmt:
             formatted_timestamp = dt.strftime(datefmt)
         else:
@@ -70,7 +71,7 @@ LOGGING_FORMAT = '[%(asctime)s] name="%(name)s" level=%(levelname)s filename="%(
 Formatter = CustomFormatter(LOGGING_FORMAT, datefmt="%Y-%m-%d %H:%M:%S,%f")
 
 
-def get_or_create_logger(logger_name: str = "default", file_path: str = None):
+def get_or_create_logger(logger_name: str = "default", file_path: Optional[str] = None):
     """Get the logger with name or create if it does not exist.
     """
     if not file_path:

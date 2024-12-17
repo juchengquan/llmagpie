@@ -1,13 +1,13 @@
 from asyncio import AbstractEventLoop
-from typing import Generator, Iterator, AsyncGenerator
+from typing import Union, AsyncGenerator, Awaitable
+from inspect import isasyncgen, isawaitable
 from threading import Thread
 
-
-class AsyncGenerationThread(Thread):
-    def __init__(self, async_generator: AsyncGenerator, loop: AbstractEventLoop, *args, **kwargs):
+class AsyncThread(Thread):
+    def __init__(self, coro: Union[Awaitable, AsyncGenerator], loop: AbstractEventLoop, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        self._async_generator = async_generator
+        self._coro = coro
         self._loop = loop
         
         self._result = None
@@ -23,7 +23,13 @@ class AsyncGenerationThread(Thread):
     def run(self):
         # call the threaded function
         try:
-            self.result = self._loop.run_until_complete( self._async_generator.__anext__() )
+            if isawaitable(self._coro):
+                self.result = self._loop.run_until_complete( self._coro )
+            elif isasyncgen(self._coro):
+                self.result = self.result = self._loop.run_until_complete( self._coro.__anext__() )
+            else:
+                raise TypeError("Input coro type is wrong.")
+                
         except StopAsyncIteration as exc:
             self.result = None
         except (Exception, BaseException) as exc:
