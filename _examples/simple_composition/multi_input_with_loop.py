@@ -1,27 +1,24 @@
-import asyncio
 import time
-from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
-from llmagpie.core.pipeline import MultiHeadPipeline
-from llmagpie.core.utilities.wrapper import socket_types
+from llmagpie.base.node import MakeNode, BaseNode
+from llmagpie.base.pipeline import MultiHeadPipeline 
 
-
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EntryNode(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
+    async def _trigger(self, inputs: str):
         time.sleep(0.1)
         return dict(outputs=inputs + "@" + self.name)
-    
+
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class MiddleNode_B(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs_1: str, inputs_2: str):
+    async def _trigger(self, inputs_1: str, inputs_2: str):
         time.sleep(0.1)
         return dict(outputs=inputs_1 + "@" + self.name + inputs_2)
 
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str, "final_outputs": str})
 class MiddleNode_C(BaseNode):
     _max_count_visited = 3
 
-    @socket_types(outputs=str, final_outputs=str)
-    async def async_call(self, inputs: str):
+    async def _trigger(self, inputs: str):
         time.sleep(0.1)
         if self.count_visited > self._max_count_visited:
             self.logger.warning("Counter Hits Maximum")
@@ -29,9 +26,9 @@ class MiddleNode_C(BaseNode):
         else:
             return dict(outputs=inputs + "@" + self.name + f"_{self.count_visited}")
 
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class MiddleNode_D(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
+    async def _trigger(self, inputs: str):
         return dict(outputs=inputs + "@" + self.name + "_D")
 
 
@@ -51,7 +48,7 @@ if __name__ == "__main__":
 
     pipe.compile()
     print("Finished compiling")
-    
+
     inputs = {
         "A2.inputs": "Hello",
         "A1.inputs": "Hello",

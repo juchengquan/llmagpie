@@ -1,16 +1,14 @@
-import base64
 import json
-import time
 from httpx import AsyncClient, Client
 from openai import OpenAI
 
-from llmagpie.core.nodes import BaseNode, class_as_node
-from llmagpie.core.tools import BaseTool, ToolsNode
+from llmagpie.base.tools import ToolsNode
+from llmagpie.base.node import MakeNode, BaseNode
 # typing
 from typing import List, Dict, Any, Optional
 
 
-@class_as_node(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
+@MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
 class OpenAIChatCompletionWithToolCall(BaseNode):
     client: OpenAI
     tools_node: Optional[ToolsNode] = None
@@ -31,7 +29,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         )
         super().__init__(client=client, *args, **kwargs)
 
-    def bind_tools(self, tools: List[BaseTool]):
+    def bind_tools(self, tools: List[BaseNode]):
         self.tools_node = ToolsNode(name=self.name + "_ToolsNode", tools=tools) # TODO
         return self
 
@@ -101,7 +99,6 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         # compose new call to LLM
         temp_counter = 0
         while (not direct_tool_outputs) and post_response["tool_calls"] and temp_counter < 3:
-            print("YIELD: ", post_response)
             yield post_response
             self._add_messages_from_tools(
                 post_response, messages, direct_tool_outputs
@@ -110,7 +107,8 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             temp_counter += 1
         yield post_response
 
-@class_as_node(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
+
+@MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
 class OpenAIChatCompletionStream(BaseNode):
     client: OpenAI
     tools_node: Optional[ToolsNode] = None
@@ -132,7 +130,7 @@ class OpenAIChatCompletionStream(BaseNode):
 
         super().__init__(client=client, *args, **kwargs)
 
-    def bind_tools(self, tools: List[BaseTool]):
+    def bind_tools(self, tools: List[BaseNode]):
         self.tools_node = ToolsNode(tools=tools)
         return self
 

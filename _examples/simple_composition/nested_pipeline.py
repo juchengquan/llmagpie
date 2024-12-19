@@ -1,45 +1,33 @@
 import asyncio
-import time
-from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
-from llmagpie.core.pipeline import MultiHeadPipeline
-from llmagpie.core.utilities.wrapper import socket_types
-# typing
-from typing import List
+from llmagpie.base.node import MakeNode, BaseNode
+from llmagpie.base.pipeline import MultiHeadPipeline
 
-# from app_instances._examples.aux_exec import AuxExecutor
 
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EntryNode(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
-        time.sleep(0.1)
-        return dict(outputs=inputs + "@" + self.name + "_A")
+    identifier: str
     
-class MiddleNode_B(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
-        time.sleep(0.1)
-        return dict(outputs=inputs + "@" + self.name + "_B")
-
-class MiddleNode_C(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
-        time.sleep(0.1)
-        return dict(outputs=inputs + "@" + self.name + "_C")
-
-class MiddleNode_D(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
+    async def _trigger(self, inputs: str):
+        await asyncio.sleep(1)
+        return dict(outputs=inputs + "@" + self.identifier)
+    
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
+class EndNode(BaseNode):
+    identifier: str
+    
+    async def _trigger(self, inputs: str):
         self.logger.debug("END!")
-        return dict(outputs=inputs + "@" + self.name + "_D")
+        await asyncio.sleep(1)
+        return dict(outputs=inputs + "@" + self.identifier)
 
 
 if __name__ == "__main__":
-    a = EntryNode(name="AA")
-    b1 = MiddleNode_B(name="B1")
-    b2 = MiddleNode_B(name="B2")
-    c1 = MiddleNode_C(name="C1")
-    c2 = MiddleNode_C(name="C2")
-    d = MiddleNode_D(name="DD")
+    a = EntryNode(name="A", identifier="A")
+    b1 = EntryNode(name="B1", identifier="B1")
+    b2 = EntryNode(name="B2", identifier="B2")
+    c1 = EntryNode(name="C1", identifier="C1")
+    c2 = EntryNode(name="C2", identifier="C2")
+    d = EndNode(name="D", identifier="D")
 
     p_b = MultiHeadPipeline(name="BB_PIPELINE", nodes=[b1, b2])
     # (b1 >> "outputs") >> ("inputs" >> b2)
@@ -60,12 +48,9 @@ if __name__ == "__main__":
     pipe.compile()
 
     inputs = {
-        "AA.inputs": "Hello"
+        "A.inputs": "Hello"
     }
 
-    
     response = pipe.invoke(inputs=inputs)
     for ele in response:
         print(ele)
-        
-    # AuxExecutor(pipe, inputs)

@@ -1,29 +1,27 @@
 import time
-from llmagpie.core.nodes import BaseNode
-from llmagpie.core.pipeline import MultiHeadPipeline
-from llmagpie.core.utilities.wrapper import socket_types
+from llmagpie.base.node import MakeNode, BaseNode
+from llmagpie.base.pipeline import MultiHeadPipeline
 
-
+@MakeNode.from_class(func_name="async_call", outputs={"outputs": str})
 class EntryNode(BaseNode):
-    @socket_types(outputs=str)
     async def async_call(self, inputs: str):
         time.sleep(0.1)
         return dict(outputs=inputs + "@" + self.name + "_A")
-    
+
+@MakeNode.from_class(func_name="async_call", outputs={"outputs": str})
 class MiddleNode_B(BaseNode):
-    @socket_types(outputs=str)
     async def async_call(self, inputs: str):
         time.sleep(0.1)
         return dict(outputs=inputs + "@" + self.name + "_B")
 
+@MakeNode.from_class(func_name="async_call", outputs={"outputs": str})
 class MiddleNode_C(BaseNode):
-    @socket_types(outputs=str)
     async def async_call(self, inputs: str):
         time.sleep(0.1)
         return dict(outputs=inputs + "@" + self.name + "_C")
 
+@MakeNode.from_class(func_name="async_call", outputs={"outputs": str})
 class MiddleNode_D(BaseNode):
-    @socket_types(outputs=str)
     async def async_call(self, inputs: str):
         self.logger.debug("END!")
         return dict(outputs=inputs + "@" + self.name + "_D")

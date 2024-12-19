@@ -1,27 +1,25 @@
 import asyncio
 import time
-from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
-from llmagpie.core.pipeline import MultiHeadPipeline
-from llmagpie.core.utilities.wrapper import socket_types
+from llmagpie.base.node import MakeNode, BaseNode
+from llmagpie.base.pipeline import MultiHeadPipeline 
 
-
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EntryNode(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
-        time.sleep(0.1)
-        return dict(outputs=inputs)
-    
-class MiddleNode_B(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
+    async def _trigger(self, inputs: str):
         time.sleep(0.1)
         return dict(outputs=inputs)
 
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
+class MiddleNode_B(BaseNode):
+    async def _trigger(self, inputs: str):
+        time.sleep(0.1)
+        return dict(outputs=inputs)
+
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str, "final_outputs": str})
 class MiddleNode_C(BaseNode):
     _max_count_visited = 3
 
-    @socket_types(outputs=str, final_outputs=str)
-    async def async_call(self, inputs: str):
+    async def _trigger(self, inputs: str):
         time.sleep(0.1)
         if self.count_visited > self._max_count_visited:
             print("Counter Hits Maximum")
@@ -30,9 +28,9 @@ class MiddleNode_C(BaseNode):
             return dict(outputs=inputs)
             # return {}
 
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class MiddleNode_D(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
+    async def _trigger(self, inputs: str):
         return dict(outputs=inputs)
 
 
@@ -54,6 +52,13 @@ if __name__ == "__main__":
         "A.inputs": "Hello"
     }
 
-    response = pipe.invoke(inputs=inputs)
-    for ele in response:
-        print(ele)
+    async def shell():
+        response = pipe.invoke(inputs=inputs)
+        for ele in response:
+            print(">>>", ele)
+    
+    asyncio.run(shell())
+    
+    # response = pipe.invoke(inputs=inputs)
+    # for ele in response:
+    #     print(ele)

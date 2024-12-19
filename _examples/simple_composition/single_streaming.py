@@ -1,35 +1,31 @@
 import asyncio
 import time
-from llmagpie.core.nodes import BaseNode, BaseServiceRetriever
-from llmagpie.core.pipeline import MultiHeadPipeline
-from llmagpie.core.utilities.wrapper import socket_types
+from llmagpie.base.node import BaseNode, MakeNode
+from llmagpie.base.pipeline import MultiHeadPipeline
 
 
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EntryNode(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
-        time.sleep(0.1)
-        return dict(outputs=inputs + "@" + self.name + "_A")
+    identifier: str
     
-class MiddleNode_B(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
-        time.sleep(0.1)
+    async def _trigger(self, inputs: str):
+        await asyncio.sleep(1)
+        return dict(outputs=inputs + "@" + self.identifier)
+    
+@MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
+class SyncStreamingNode(BaseNode):
+    identifier: str
+    
+    def _trigger(self, inputs: str):
         for i in range(3):
-            yield dict(outputs=inputs + "@" + self.name + "_B" + str(i+1)) 
-        # return dict(outputs=inputs + "@" + self.name + "_B")
-
-class MiddleNode_C(BaseNode):
-    @socket_types(outputs=str)
-    async def async_call(self, inputs: str):
-        time.sleep(0.1)
-        return dict(outputs=inputs + "@" + self.name + "_C")
+            time.sleep(1)
+            yield dict(outputs=inputs + "@" + self.identifier + str(i+1)) 
 
 
 if __name__ == "__main__":
-    a = EntryNode(name="A")
-    b = MiddleNode_B(name="B")
-    c = MiddleNode_C(name="C")
+    a = EntryNode(name="A", identifier="A")
+    b = SyncStreamingNode(name="B", identifier="B")
+    c = EntryNode(name="C", identifier="C")
     
     pipe = MultiHeadPipeline(name="OUTER", nodes=[a, b, c])
 
@@ -41,6 +37,15 @@ if __name__ == "__main__":
         "A.inputs": "Hello"
     }
 
-    response = pipe.invoke(inputs=inputs)
-    for ele in response:
-        print(ele)
+    async def main():
+        response = pipe.invoke(inputs=inputs)
+        for ele in response:
+            print(ele)
+            
+    asyncio.run(
+        main()
+    )
+    
+    # response = pipe.invoke(inputs=inputs)
+    # for ele in response:
+    #     print(ele)
