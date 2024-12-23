@@ -12,7 +12,6 @@ from llmagpie.base.utils.state import StateResponse
 from llmagpie.base.utils.async_to_sync import (
     exec_generator_in_event_loop, exec_generator_in_separated_thread
 )
-# EXPERIMENTAL
 from llmagpie.core.opentelemetry import opentelemetry_tracer
 # typing
 from typing import (

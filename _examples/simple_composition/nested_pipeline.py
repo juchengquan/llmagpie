@@ -1,6 +1,6 @@
 import asyncio
 from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import MultiHeadPipeline
+from llmagpie.base.pipeline import BasePipeline
 
 
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
@@ -29,20 +29,20 @@ if __name__ == "__main__":
     c2 = EntryNode(name="C2", identifier="C2")
     d = EndNode(name="D", identifier="D")
 
-    p_b = MultiHeadPipeline(name="BB_PIPELINE", nodes=[b1, b2])
+    p_b = BasePipeline(name="BB_PIPELINE", nodes=[b1, b2])
     # (b1 >> "outputs") >> ("inputs" >> b2)
     p_b.add_edge(b1, b2, "outputs", "inputs")
     p_b.compile()
     
-    p_c = MultiHeadPipeline(name="CC_PIPELINE", nodes=[c1, c2])
+    p_c = BasePipeline(name="CC_PIPELINE", nodes=[c1, c2])
     (c1 >> "outputs") >> ("inputs" >> c2)
     p_c.compile()
     
-    mid_p = MultiHeadPipeline(name="MID", nodes=[p_b, p_c])
+    mid_p = BasePipeline(name="MID", nodes=[p_b, p_c])
     (p_b >> "B2.outputs") >> ("C1.inputs" >> p_c)
     mid_p.compile()
 
-    pipe = MultiHeadPipeline(name="NESTED PIPELINE OUTER", nodes=[a, mid_p, d])
+    pipe = BasePipeline(name="NESTED PIPELINE OUTER", nodes=[a, mid_p, d])
     (a >> "outputs") >> ("BB_PIPELINE.B1.inputs" >> mid_p)
     (mid_p >> "CC_PIPELINE.C2.outputs") >> ("inputs" >> d)
     pipe.compile()

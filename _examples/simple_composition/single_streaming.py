@@ -1,7 +1,7 @@
 import asyncio
 import time
 from llmagpie.base.node import BaseNode, MakeNode
-from llmagpie.base.pipeline import MultiHeadPipeline
+from llmagpie.base.pipeline import BasePipeline
 
 
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     b = SyncStreamingNode(name="B", identifier="B")
     c = EntryNode(name="C", identifier="C")
     
-    pipe = MultiHeadPipeline(name="OUTER", nodes=[a, b, c])
+    pipe = BasePipeline(name="OUTER", nodes=[a, b, c])
 
     (a >> "outputs") >> ("inputs" >> b)
     (b >> "outputs") >> ("inputs" >> c)

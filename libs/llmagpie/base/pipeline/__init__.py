@@ -1,5 +1,5 @@
-from ._base import BasePipeline, MultiHeadPipeline
+from ._base import BasePipeline
 
 __all__ = [
-    "BasePipeline", "MultiHeadPipeline"
+    "BasePipeline"
 ]

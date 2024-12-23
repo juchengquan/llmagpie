@@ -1,7 +1,11 @@
-import chromadb
 from pydantic import BaseModel
-from chromadb.api import ClientAPI
-from chromadb.config import Settings
+try:
+    from chromadb import PersistentClient, HttpClient, Settings
+    from chromadb.api import ClientAPI
+    from chromadb.config import Settings
+    _CRHOMADB_INSTALLED = True
+except ImportError:
+    _CRHOMADB_INSTALLED = False
 # typing
 from typing import List, Dict, Optional, Literal, Union, cast
 
@@ -29,8 +33,13 @@ class ChromaDBStore:
         host: str = "localhost",
         port: Union[int, str] = "9999",
     ):
+        if _CRHOMADB_INSTALLED is False:
+            raise ImportError(
+                "Could not import chromadb python package. "
+                "Please install it with `pip install chromadb`."
+            )
         if persistent_path is not None:
-            self.client = chromadb.PersistentClient(
+            self.client = PersistentClient(
                 path=persistent_path,
                 settings=Settings(
                     anonymized_telemetry=False,
@@ -40,7 +49,7 @@ class ChromaDBStore:
             self.mode = "local"
 
         elif (host is not None) or (port is not None):
-            self.client = chromadb.HttpClient(
+            self.client = HttpClient(
                 host=host,
                 port=cast(int, port),
                 settings=Settings(
@@ -109,18 +118,18 @@ class ChromaDBStore:
         """"""
         if self.mode == "local":
             self.client.reset()
-            self.client = chromadb.PersistentClient(
+            self.client = PersistentClient(
                 path=self.persistent_path,
-                settings=chromadb.Settings(
+                settings=Settings(
                     anonymized_telemetry=False,
                     allow_reset=True),
             )
         elif self.mode == "client":
             raise ValueError("Purge is not allowed in remote mode.")
-            # self.client = chromadb.HttpClient(
+            # self.client = HttpClient(
             #     host=host,
             #     port=port,
-            #     settings=chromadb.Settings(
+            #     settings=Settings(
             #         anonymized_telemetry=False,
             #         allow_reset=True),
             # )

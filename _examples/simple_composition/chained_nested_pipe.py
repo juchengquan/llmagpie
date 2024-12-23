@@ -1,6 +1,6 @@
 import time
-from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import MultiHeadPipeline
+from llmagpie import MakeNode, BaseNode, BasePipeline
+
 
 @MakeNode.from_class(func_name="async_call", outputs={"outputs": str})
 class EntryNode(BaseNode):
@@ -35,19 +35,19 @@ if __name__ == "__main__":
     c2 = MiddleNode_C(name="C2")
     d = MiddleNode_D(name="D")
 
-    p_b = MultiHeadPipeline(name="B_PIPE", nodes=[b1, b2])
+    p_b = BasePipeline(name="B_PIPE", nodes=[b1, b2])
     (b1 >> "outputs") >> ("inputs" >> b2)
     p_b.compile()
 
-    p_c = MultiHeadPipeline(name="C_PIPE", nodes=[c1, c2])
+    p_c = BasePipeline(name="C_PIPE", nodes=[c1, c2])
     (c1 >> "outputs") >> ("inputs" >> c2)
     p_c.compile()
 
-    mid_p = MultiHeadPipeline(name="MID", nodes=[p_b, p_c])
+    mid_p = BasePipeline(name="MID", nodes=[p_b, p_c])
     (p_b >> "B2.outputs") >> ("C1.inputs" >> p_c)
     mid_p.compile()
 
-    pipe = MultiHeadPipeline(name="NESTED PIPELINE OUTER", nodes=[a, mid_p, d])
+    pipe = BasePipeline(name="NESTED PIPELINE OUTER", nodes=[a, mid_p, d])
     (a >> "outputs") >> ("B_PIPE.B1.inputs" >> mid_p)
     (mid_p >> "C_PIPE.C2.outputs") >> ("inputs" >> d)
     pipe.compile()

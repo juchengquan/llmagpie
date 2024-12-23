@@ -4,7 +4,7 @@ from . import connectable
 from . import tools
 
 from .node import BaseNode, MakeNode 
-
+from .pipeline import BasePipeline
 
 
 __all__ = [
@@ -12,4 +12,6 @@ __all__ = [
     "pipeline",
     "connectable",
     "tools",
+    
+    "BaseNode", "MakeNode", "BasePipeline"
 ]

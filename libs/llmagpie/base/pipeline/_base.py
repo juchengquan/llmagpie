@@ -6,21 +6,25 @@ import json
 import sys
 
 from asyncio import FIRST_COMPLETED, wait, CancelledError, get_running_loop
-from opentelemetry import trace, context
 from pydantic import Field
 
 from llmagpie.base.utils.state import StateResponse
 from llmagpie.base.connectable import BaseConnectable, FunctionSchema, InternalDictState
 from llmagpie.base.enum import NodeRunningStatus, ConnectableType
 
-from llmagpie.core.opentelemetry import opentelemetry_tracer, OTEL_ENABLED
 from ._aux import make_as_task, decompose_pipeline  # TODO
 from ._dag import SingleDAG
 
+# opentelemetry
+from llmagpie.core.opentelemetry import (
+    opentelemetry_tracer, OTEL_ENABLED,
+    trace, context  # type: ignore
+)
+
 from typing import (
     cast,
-    AsyncGenerator, Collection, TypeVar,
-    Sequence, Dict, Union, Optional, List, Callable,
+    AsyncGenerator,
+    Sequence, Dict, Union, Optional, List,
 )
 if sys.version_info.minor >= 11:
     from typing import Self
@@ -28,7 +32,7 @@ else:
     from typing_extensions import Self
 
 
-class BasePipeline(BaseConnectable):
+class _BaseTypePipeline(BaseConnectable):
     connectable_type: ConnectableType = ConnectableType.PIPELINE
     nodes: List[BaseConnectable] = []
     graph: SingleDAG = Field(default_factory=lambda: SingleDAG(name=uuid.uuid4().hex))
@@ -361,8 +365,9 @@ class BasePipeline(BaseConnectable):
                         try:
                             response: StateResponse = done_task.result()
                             if response:
-                                # IMPORTANT: save context before yield!
-                                current_ctx = context.get_current()
+                                if OTEL_ENABLED:
+                                    # IMPORTANT: save context before yield!
+                                    current_ctx = context.get_current()
                                 _output_values: dict = response.value 
                                 _parent = response.node
                                 # This yield to the final output
@@ -376,7 +381,7 @@ class BasePipeline(BaseConnectable):
                                     span.set_attributes({
                                         f'component_output.value.{response.node.name}': json.dumps(_output_values),  
                                     })
-                                context.attach(current_ctx)
+                                    context.attach(current_ctx)
                             del response
 
                         except StopAsyncIteration: # 
@@ -442,7 +447,7 @@ class BasePipeline(BaseConnectable):
             self.count_visited += 1  # TODO cqju
             
 
-class MultiHeadPipeline(BasePipeline):
+class BasePipeline(_BaseTypePipeline):
     def _validate(self):
         self._validate_root_nodes()
         # migrate heads and tails check from node level

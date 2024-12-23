@@ -1,6 +1,6 @@
 import time
 from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import MultiHeadPipeline 
+from llmagpie.base.pipeline import BasePipeline 
 
 
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     e = MiddleNode_E(name="E")
     d = MiddleNode_D(name="D")
     
-    pipe = MultiHeadPipeline(name="OUTER", nodes=[a, b, c, e, d])
+    pipe = BasePipeline(name="OUTER", nodes=[a, b, c, e, d])
 
     (a >> "outputs") >> ("inputs" >> b)
     (a >> "outputs") >> ("inputs" >> c)

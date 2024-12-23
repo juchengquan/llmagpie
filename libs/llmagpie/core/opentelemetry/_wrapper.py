@@ -1,25 +1,37 @@
 import os
 import wrapt
 import json
+import warnings
 from asyncio import (
     as_completed,
     create_task,
     run as asyncio_run,
 )
 
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.resources import Resource
 # 
 from inspect import BoundArguments, Parameter, signature, iscoroutinefunction
-from opentelemetry.trace.status import Status, StatusCode
+
 from functools import partial
 # typing
 from typing import Union, Callable, Dict, Any, Optional, cast
 from pydantic import BaseModel
 from pydantic._internal._model_construction import ModelMetaclass
+
+
+try:
+    from opentelemetry import trace, context
+    from opentelemetry.trace.status import Status, StatusCode
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcessor, ConsoleSpanExporter
+
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
+    
+    OTEL_ENABLED: bool = True
+except ImportError:
+    warnings.warn("opentelemetry-python is not installed")
+    OTEL_ENABLED: bool = False
+    trace, context = None, None
 
 
 def _initialize_default_remote_tracer(
@@ -40,7 +52,7 @@ def _initialize_default_remote_tracer(
     remote_tracer_provider.add_span_processor(service_span_processor)  # can add multiple 
     trace.set_tracer_provider(remote_tracer_provider)  # IMPORTANT: for default, set only once
 
-def _get_default_tracer(tracer_provider: Optional[TracerProvider] = None):
+def _get_default_tracer(tracer_provider: Optional["TracerProvider"] = None):
     # get default tracer
     tracer = trace.get_tracer("my.tracer", tracer_provider=tracer_provider)
     # from opentelemetry.trace.status import Status, StatusCode

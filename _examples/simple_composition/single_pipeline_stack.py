@@ -1,6 +1,6 @@
 import time
 from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import MultiHeadPipeline 
+from llmagpie.base.pipeline import BasePipeline 
 
 
 @MakeNode.from_class(func_name="async_call", outputs=dict(entry_outputs=str))
@@ -36,7 +36,7 @@ if __name__ == "__main__":
     b = MiddleNode_B(name="B")
     c = EndNode(name="C")
     
-    pipe = MultiHeadPipeline(name="OUTER", nodes=[a, b, c])
+    pipe = BasePipeline(name="OUTER", nodes=[a, b, c])
 
     (a >> "entry_outputs") >> ("initial_inputs" >> b)
     (b >> "middle_output1") >> ("other_input1" >> b)
