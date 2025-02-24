@@ -12,7 +12,7 @@ from llmagpie.base.utils.state import StateResponse
 from llmagpie.base.connectable import BaseConnectable, FunctionSchema, InternalDictState
 from llmagpie.base.enum import NodeRunningStatus, ConnectableType
 
-from ._aux import make_as_task, decompose_pipeline  # TODO
+from ._aux import make_as_task, decompose_pipeline
 from ._dag import SingleDAG
 
 # opentelemetry
@@ -33,6 +33,12 @@ else:
 
 
 class _BaseTypePipeline(BaseConnectable):
+    """Class that represents a pipeline of tasks. 
+    It inherits from BaseConnectable and implements the necessary methods to run tasks in a pipeline.
+    The class includes methods for adding tasks to the pipeline, running the pipeline, 
+    and checking the status of the pipeline. It also includes methods 
+    for handling errors and cancelling the pipeline.
+    """
     connectable_type: ConnectableType = ConnectableType.PIPELINE
     nodes: List[BaseConnectable] = []
     graph: SingleDAG = Field(default_factory=lambda: SingleDAG(name=uuid.uuid4().hex))
@@ -93,6 +99,12 @@ class _BaseTypePipeline(BaseConnectable):
         return self
 
     def add_nodes(self, nodes: Union[Sequence[BaseConnectable], Dict[str, BaseConnectable]]):
+        """
+        Adds nodes to the pipeline.
+
+        Args:
+            nodes: A sequence or dictionary of nodes to add to the pipeline.
+        """
         assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
         """Add nodes."""
         if isinstance(nodes, Sequence):
@@ -136,7 +148,7 @@ class _BaseTypePipeline(BaseConnectable):
             o_key_schema = o_schema[o_key].get("type", "object")
             i_key_schema = i_schema[i_key].get("type", "object")
             assert i_key_schema == o_key_schema, f'The schema does not align: input: {i_key}->{i_key_schema}; output: {o_key}->{o_key_schema}'
-            # TODO: CHECK keys
+            # check keys in schema
             assert i_key in i_schema, AssertionError(f'{i_key} not in {i_schema}')
             assert o_key in o_schema, AssertionError(f'{o_key} not in {o_schema}')
 
@@ -254,7 +266,7 @@ class _BaseTypePipeline(BaseConnectable):
                     child.input_state[session_id] = child.input_state.get(session_id, {})
                 
                 _input_values_internal = {
-                    s: output_values_internal[d] for s, d in zip(_input_keys, _output_keys) if output_values_internal.get(d, None)  # TODO: 0926
+                    s: output_values_internal[d] for s, d in zip(_input_keys, _output_keys) if output_values_internal.get(d, None)
                 }
                 if _input_values_internal != {}:
                     for _key, _value in _input_values_internal.items():
@@ -389,12 +401,12 @@ class _BaseTypePipeline(BaseConnectable):
                             del iterator_dict[iterator]
 
                             _parent = self.graph.nodes[node_id]["_obj"]
-                            # TODO FIXME 1219
+                            
                             if isinstance(_parent.output_history_state[session_id], List):
                                 _most_recent_output_values = _parent.output_history_state[session_id].pop(-1)["value"]
-                            elif isinstance(_parent.output_history_state[session_id], Dict):
-                                _most_recent_output_values = _parent.output_history_state[session_id]["value"]
-                            # TODO 1016
+                            else:
+                                raise ValueError(f"output_history_state type is wrong: {type(_parent.output_history_state[session_id])}")
+                            
                             if _parent.connectable_type == ConnectableType.PIPELINE:
                                 _most_recent_output_values = decompose_pipeline(_most_recent_output_values)
                             else:
@@ -444,7 +456,7 @@ class _BaseTypePipeline(BaseConnectable):
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)
         finally:
-            self.count_visited += 1  # TODO cqju
+            self.count_visited += 1
             
 
 class BasePipeline(_BaseTypePipeline):

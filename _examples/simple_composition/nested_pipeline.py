@@ -8,7 +8,7 @@ class EntryNode(BaseNode):
     identifier: str
     
     async def _trigger(self, inputs: str):
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
         return dict(outputs=inputs + "@" + self.identifier)
     
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
@@ -17,7 +17,7 @@ class EndNode(BaseNode):
     
     async def _trigger(self, inputs: str):
         self.logger.debug("END!")
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
         return dict(outputs=inputs + "@" + self.identifier)
 
 

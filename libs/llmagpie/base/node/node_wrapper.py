@@ -24,32 +24,22 @@ class MakeNode:
                 "The function name has conflict with the default function name."
             assert func_name and hasattr(class_, func_name), ValueError("function name is wrong.")
             func_callable = getattr(class_, func_name)
-            
-            input_model = create_schema_from_function(func_callable, in_class=True)   # TODO: in_class
+            input_model = create_schema_from_function(func_callable, in_class=True)
             output_model = create_schema_from_types(func_callable.__name__, outputs)
             
             @wraps(func_callable)
             async def _wrapper(*args, **kwargs):
-                # print("wrapped")
                 inputs = input_model(**kwargs)  # type: ignore
-                res = func_callable(*args, **inputs.__dict__)  # TODO 1114
+                res = func_callable(*args, **inputs.__dict__)
                 if isinstance(res, Awaitable):
                     res = await res
                 return post_run(res, output_model)
-                # return func_callable(*args, **kwargs)
 
+            # classvar binding
             setattr(class_, "async_call_", _wrapper)
             setattr(class_, "input_model_schema", input_model)
             setattr(class_, "output_model_schema", output_model)
             
-            # @wraps(wrapped=class_, updated=())
-            # class AsNode(class_, BaseNode):
-            #     __annotations__ = class_.__annotations__
-            #     __name__ = class_.__name__
-            #     __module__ = class_.__module__
-            #     __qualname__ = class_.__qualname__
-            #     __doc__ = class_.__doc__
-            # return AsNode
             return class_
         
         if class_:
@@ -71,12 +61,6 @@ class MakeNode:
 
                 def _func_wrapper(func):
                     @wraps(func)
-                    def _wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
-                        inputs = input_model(**kwargs)
-                        res = func(*args, **inputs.__dict__)
-                        return post_run(res, output_model)
-                    
-                    @wraps(func)
                     async def _async_wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
                         inputs = input_model(**kwargs)
                         res = func(*args, **inputs.__dict__)
@@ -84,9 +68,9 @@ class MakeNode:
                             res = await res
                         return post_run(res, output_model)
 
-                    if iscoroutinefunction(func) or isasyncgenfunction(func):
-                        return _async_wrapper
-                    return _wrapper 
+                    # if iscoroutinefunction(func) or isasyncgenfunction(func):
+                    #     return _async_wrapper
+                    return _async_wrapper 
                 
                 class AsNode(BaseNode):
                     class Config:
@@ -117,13 +101,13 @@ def from_class(class_: Optional[Type]=None, func_name: str="", outputs: Dict={})
         assert func_name and hasattr(class_, func_name), ValueError("function name is wrong.")
         func_callable = getattr(class_, func_name)
         
-        input_model = create_schema_from_function(func_callable, in_class=True)   # TODO: in_class
+        input_model = create_schema_from_function(func_callable, in_class=True)
         output_model = create_schema_from_types(func_callable.__name__, outputs)
         
         @wraps(func_callable)
         async def _wrapper(*args, **kwargs):
             inputs = input_model(**kwargs)  # type: ignore
-            res = func_callable(*args, **inputs.__dict__)  # TODO 1114
+            res = func_callable(*args, **inputs.__dict__)
             if isinstance(res, Awaitable):
                 res = await res
             return post_run(res, output_model)
@@ -154,14 +138,12 @@ def from_function(func: Optional[Callable]=None, name: Optional[str]=None, outpu
             def _func_wrapper(func):
                 @wraps(func)
                 def _wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
-                    # TODO 0926
                     inputs = input_model(**kwargs)
                     res = func(*args, **inputs.__dict__)
                     return post_run(res, output_model)
                 
                 @wraps(func)
                 async def _async_wrapper(*args, **kwargs) -> Union[Dict, Generator, AsyncGenerator]:
-                    # TODO 0926
                     inputs = input_model(**kwargs)
                     res = func(*args, **inputs.__dict__)
                     if isinstance(res, Awaitable):

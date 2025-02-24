@@ -9,7 +9,7 @@ class EntryNode(BaseNode):
     identifier: str
     
     async def _trigger(self, inputs: str):
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
         return dict(outputs=inputs + "@" + self.identifier)
     
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
@@ -18,7 +18,7 @@ class SyncStreamingNode(BaseNode):
     
     def _trigger(self, inputs: str):
         for i in range(3):
-            time.sleep(1)
+            time.sleep(0.1)
             yield dict(outputs=inputs + "@" + self.identifier + str(i+1)) 
 
 

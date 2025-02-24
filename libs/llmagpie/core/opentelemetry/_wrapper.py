@@ -81,6 +81,15 @@ def _get_bound_arguments(function: Callable[..., Any], *args: Any, **kwargs: Any
 
 
 class WrapDecorator:
+    """
+    This class is a decorator that wraps a function and adds OpenTelemetry tracing.
+
+    If opentelemetry is enabled, it creates a span for the function call, adds input and output
+    attributes to the span, and sets the span status to OK or ERROR based on whether the function
+    executes successfully.  If opentelemetry is not enabled, it does nothing.  The decorator
+    handles both synchronous and asynchronous functions.  It also handles Pydantic models as
+    function outputs, converting them to dictionaries before adding them to the span attributes.
+    """
     def __init__(self, tracer):
         self._tracer = tracer
     
@@ -103,16 +112,17 @@ class WrapDecorator:
             
             func_bound_args = _get_bound_arguments(func, *args, **kwargs)
             func_arguments = func_bound_args.kwargs
-            # span = self._tracer.start_span(name=name)
+            
             with self._tracer.start_as_current_span(name=name) as span:
                 span.set_attributes({
                     "input.value": json.dumps(func_arguments, default=str, ensure_ascii=False),
                 })
                 try:
                     response = func(*args, **kwargs)
-                    # TODO cqju
                     if isinstance(response, Union[ModelMetaclass, BaseModel]):
                         response = cast(BaseModel, response).model_dump()
+                    else:
+                        assert(instance(response, dict)), f"response type is wrong: {type(response)}"
                     span.set_attributes({
                         "output.value": json.dumps(response, default=str, ensure_ascii=False),  
                     })
@@ -131,20 +141,17 @@ class WrapDecorator:
             func_bound_args = _get_bound_arguments(func, *args, **kwargs)
             func_arguments = func_bound_args.kwargs
 
-            # span = self._tracer.start_span(name=name)
             with self._tracer.start_as_current_span(name=name) as span:
-                # TODO: cqju remove for opentelemetry
                 span.set_attributes({
                     "openinference.span.kind": instance.connectable_type if hasattr(instance, "connectable_type") else "LLM",
-                })
-                span.set_attributes({
                     "input.value": json.dumps(func_arguments, default=str, ensure_ascii=False),
                 })
                 try:
                     response = await func(*args, **kwargs)
-                    # TODO cqju
                     if isinstance(response, Union[ModelMetaclass, BaseModel]):
-                        response = cast(BaseModel, response).model_dump()
+                        response: dict = cast(BaseModel, response).model_dump()
+                    else:
+                        assert(isinstance(response, dict)), "response type is wrong"
                     span.set_attributes({
                         "output.value": json.dumps(response, default=str, ensure_ascii=False), 
                     })
@@ -187,13 +194,13 @@ class EmptyWrapDecorator:
             return async_wrapper(func)  # type: ignore
         return wrapper(func)  # type: ignore
 
-OTEL_ENABLED: bool = False
 if os.getenv("OTEL_COLLECTOR_ENDPOINT"):
     _initialize_default_remote_tracer()
     opentelemetry_tracer = WrapDecorator(tracer=_get_default_tracer())
-    OTEL_ENABLED = True
+    OTEL_ENABLED &= True
 else:
     opentelemetry_tracer = EmptyWrapDecorator()
+    OTEL_ENABLED &= False
 
 if __name__ == "__main__":
     from abc import abstractmethod

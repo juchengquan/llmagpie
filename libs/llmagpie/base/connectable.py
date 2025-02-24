@@ -15,11 +15,10 @@ from llmagpie.base.utils.async_to_sync import (
 )
 # typing
 from typing import List, Dict, Union, Set, Literal, Optional, Generator, Callable, AsyncGenerator, cast, final
-from abc import abstractmethod
 
 
 
-class BaseState(ABC):
+class BaseState:
     @abstractmethod    
     def clear(self):
         raise NotImplementedError
@@ -134,8 +133,9 @@ class BaseConnectable(BaseStateStore):
     is_end: bool = Field(default=True, description="Indicator that if the component is an end node.")
     _running_status: NodeRunningStatus = PrivateAttr(default=NodeRunningStatus.INACTIVE)
     
-    pipeline: Optional[BaseConnectable] = Field(default=None)  # TODO: This is prepration for all connectables
-    # TODO: typing might be wrong
+    # `pipeline` is a placeholder for all connectables
+    # typing might be wrong 
+    pipeline: Optional[BaseConnectable] = Field(default=None)
         
     _input_keys_binded: Set[str] = set()
     # input binded keys
@@ -149,7 +149,7 @@ class BaseConnectable(BaseStateStore):
     # condition function
     cond_func: Optional[Callable] = None
     inputs_to_cond: Optional[Dict] = None
-    # TODO LOOP
+    # LOOP
     iteration_counter: Dict = Field(default_factory=dict)
     max_iteration_limit: int = Field(default=10)
     count_visited: int = 0
@@ -180,7 +180,6 @@ class BaseConnectable(BaseStateStore):
 
     def __str__(self):
         return self.__repr__()
-
 
     @abstractmethod
     def _validate(self):
@@ -237,10 +236,11 @@ class BaseConnectable(BaseStateStore):
                 else:
                     self.logger.warning(f"{self} cond_func missing inputs_to_cond. Mapping all inputs of the node.")
                     inputs_to_cond_values = inputs
+                
                 if self.cond_func(**inputs_to_cond_values) == False:
                     self.logger.warning(f"[Condition not met] NOT EXECUTED -> {self.name}")
                     return None
-                   
+            
             if not (
                 set(inputs.keys()).issubset(self.func_schema.internal.input.all) and \
                 set(self.func_schema.internal.input.required).issubset(set(inputs.keys()))
@@ -251,8 +251,9 @@ class BaseConnectable(BaseStateStore):
                     f', or Required input parameters {set(self.func_schema.internal.input.required)} '
                     f'does not align with the input keys: {set(inputs.keys())}')
                 
-                self.logger.warning(f"[PRECHECK] NOT EXECUTED YET -> {self.name}: Imcomplete inputs")  # TODO: raise error
+                self.logger.warning(f"[PRECHECK] NOT EXECUTED YET -> {self.name}: Incomplete inputs")
                 return None
+            
             return inputs
         except (BaseException, Exception) as exc:
             self._error_callback(session_id, exc)

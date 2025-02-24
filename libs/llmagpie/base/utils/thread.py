@@ -26,7 +26,7 @@ class AsyncThread(Thread):
             if isawaitable(self._coro):
                 self.result = self._loop.run_until_complete( self._coro )
             elif isasyncgen(self._coro):
-                self.result = self.result = self._loop.run_until_complete( self._coro.__anext__() )
+                self.result = self._loop.run_until_complete( self._coro.__anext__() )
             else:
                 raise TypeError("Input coro type is wrong.")
                 

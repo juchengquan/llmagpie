@@ -13,6 +13,9 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
     client: OpenAI
     tools_node: Optional[ToolsNode] = None
     
+    num_tool_calls: int = 0
+    max_num_tool_calls: int = 3
+    
     def __init__(
         self,
         api_key: str,
@@ -22,6 +25,15 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         *args,
         **kwargs,
     ):
+        """
+        Initialization function.
+
+        Args:
+            api_key (str): The API key to be used for the OpenAI conpatible API.
+            base_url (str): The base URL for the OpenAI conpatible API.
+            ssl_verify (bool, optional): Whether to verify SSL certificates. Defaults to False.
+            timeout (int, optional): The timeout for API requests. Defaults to 60.
+        """
         client = OpenAI(
             api_key = api_key,
             base_url = base_url,
@@ -30,15 +42,27 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         super().__init__(client=client, *args, **kwargs)
 
     def bind_tools(self, tools: List[BaseNode]):
-        self.tools_node = ToolsNode(name=self.name + "_ToolsNode", tools=tools) # TODO
+        self.tools_node = ToolsNode(name=self.name + "_ToolsNode", tools=tools)
         return self
 
     async def _single_call(
         self,
         model,
         messages,
-        direct_tool_outputs,
     ):
+        """
+        Args:
+            model (str): The name of the OpenAI conpatible model to use.
+            messages (List[Dict]): A list of message dictionaries, where each dictionary has at least the keys "role"
+                (e.g., "user" or "assistant") and "content" (a string).
+
+        Returns:
+            Dict: A dictionary containing the OpenAI response, which includes the "content" of the response
+                and a "tool_calls" list if any tools were invoked.
+
+        Raises:
+            Exception: If the number of tool calls exceeds the maximum allowed (self.max_num_tool_calls).
+        """
         call_kwargs = dict(
             model=model,
             messages=messages,
@@ -49,42 +73,63 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
                 tools=self.tools_node._generate_openai_schema()    
             ))
         response = self.client.chat.completions.create(**call_kwargs)  # type: ignore
-        post_response = get_llm_answer(response)
+        post_response = _get_llm_answer(response)
 
         if self.tools_node:
-            post_response["tool_calls"] = (await self.tools_node.async_call_(tool_calls_list=post_response["tool_calls"])).get("tool_calls_list", [])
-        elif direct_tool_outputs:
-            self.logger.warning("Tools is not binded but `direct_tool_outputs` is set True.... omit")
-            direct_tool_outputs = False
+            post_response["tool_calls"] = (
+                await self.tools_node.async_call_(tool_calls_list=post_response["tool_calls"])).get("tool_calls_list", []
+            )
         else:
-            post_response["tool_calls"] = [] 
+            post_response["tool_calls"] = []
         
-        return post_response, direct_tool_outputs
+        return post_response
 
     def _add_messages_from_tools(
         self,
         post_response,
-        messages,
-        direct_tool_outputs
-        
+        messages,  
     ):
-        if direct_tool_outputs:
-            return post_response
-        
+        """
+        Adds tool call messages to the conversation history.
+
+        Args:
+            post_response (Dict): The response from the LLM containing tool calls.
+            messages (List[Dict]): The current conversation history to which tool call messages will be added.
+
+        This method appends two types of messages to the conversation history:
+        1. A message representing the tool call request from the LLM.
+        2. A message representing the tool's response to the call.
+        """
+        messages.append({
+            "role": post_response["role"],
+            "tool_calls": [{
+                "id": ele["id"],
+                "type": ele["type"],
+                "function": ele["function"],
+            } for ele in post_response["tool_calls"]]
+        })
         for ele in post_response["tool_calls"]:
-            messages.append({
-                "role": post_response["role"],
-                "tool_calls": [{
-                    "id": ele["id"],
-                    "type": ele["type"],
-                    "function": ele["function"],
-                }]
-            })
             messages.append({
                 "role": "tool",
                 "content": json.dumps(ele["output"]),
                 "tool_call_id": ele["id"],
             })
+        
+        # only for llama <- parallel tool calling
+        # for ele in post_response["tool_calls"]:
+        #     messages.append({
+        #         "role": post_response["role"],
+        #         "tool_calls": [{
+        #             "id": ele["id"],
+        #             "type": ele["type"],
+        #             "function": ele["function"],
+        #         }]
+        #     })
+        #     messages.append({
+        #         "role": "tool",
+        #         "content": json.dumps(ele["output"]),
+        #         "tool_call_id": ele["id"],
+        #     })
     
     async def async_call(
         self,
@@ -93,19 +138,39 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         direct_tool_outputs: bool = False,
         # stream: bool = False,
     ):
-        post_response, direct_tool_outputs = await self._single_call(model, messages, direct_tool_outputs)
-        
-        # VLLM: only one tool call for each time
-        # compose new call to LLM
-        temp_counter = 0
-        while (not direct_tool_outputs) and post_response["tool_calls"] and temp_counter < 3:
+        """
+        Asynchronously calls the OpenAI chat completion API with optional tool calls.
+
+        Args:
+            model (str): The model to use for the chat completion.
+            messages (List[Dict[str, Any]]): A list of message dictionaries containing the conversation history.
+            direct_tool_outputs (bool, optional): If True, yields the tool outputs directly without further LLM calls.
+                                                Defaults to False.
+
+        Yields:
+            Dict: A dictionary containing the response content and tool calls. The dictionary has the following keys:
+                - content (str): The generated text content.
+                - tool_calls (List[Dict]): A list of tool calls, each containing the tool's ID, type, and function details.
+        """
+        if direct_tool_outputs and not self.tools_node:
+            self.logger.warning("Tools is not binded but `direct_tool_outputs` is set True.... omit")
+            direct_tool_outputs = False
+
+        post_response = await self._single_call(model, messages)
+        if direct_tool_outputs:
             yield post_response
-            self._add_messages_from_tools(
-                post_response, messages, direct_tool_outputs
-            )
-            post_response, direct_tool_outputs = await self._single_call(model, messages,direct_tool_outputs)
-            temp_counter += 1
-        yield post_response
+        else:
+            # VLLM: only one tool call for each time
+            # compose new call to LLM
+            while self.num_tool_calls < self.max_num_tool_calls and post_response["tool_calls"]:
+                print("0")
+                yield post_response
+                self._add_messages_from_tools(
+                    post_response, messages
+                )
+                post_response = await self._single_call(model, messages)
+                self.num_tool_calls += 1
+            yield post_response
 
 
 @MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
@@ -222,7 +287,7 @@ def get_llm_answer_stream(response):
     return res
 
 
-def get_llm_answer(response):
+def _get_llm_answer(response):
     res = {}
 
     choice = response.choices[0]

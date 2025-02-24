@@ -21,6 +21,10 @@ from typing import (
 
 
 class BaseNode(BaseConnectable):
+    """
+    A base class for all nodes in the system. It provides basic functionality for
+    connecting, disconnecting and managing the state of the node.
+    """
     class Config:
         extra = "forbid"
         
@@ -69,6 +73,8 @@ class BaseNode(BaseConnectable):
     
     @final
     def run(self, **inputs):
+        """Runs the node with the provided inputs and yields output.
+        """
         res = self.stream(**inputs)
         last_res = None
         for e in res:
@@ -77,6 +83,8 @@ class BaseNode(BaseConnectable):
     
     @final
     def stream(self, **inputs):
+        """Run the tool with the given inputs and yield the results.
+        """
         async_result = cast(AsyncGenerator, self._async_stream(**inputs))
         try:
             _thread_mode = False
@@ -112,7 +120,7 @@ class BaseNode(BaseConnectable):
             last_res = e
         return last_res    
     
-    def _validate(self):  # TODO: may need to change function name
+    def _validate(self):
         """
         Validates the binding status of the node and ensures that all required inputs are bound.
 
@@ -130,7 +138,7 @@ class BaseNode(BaseConnectable):
         self.is_binded = True
         
         # Check input bound status
-        if not self.is_start:  # TODO
+        if not self.is_start:
             assert set(self.func_schema.internal.input.required).issubset(set(self._input_keys_binded)) \
                 and set(self._input_keys_binded).issubset(set(self.func_schema.internal.input.all)), \
                 "Required inputs parameters are not fully bound. Or unknown keys bound."
@@ -150,12 +158,6 @@ class BaseNode(BaseConnectable):
             }
         })
         return self
-    
-    # CHILDREN PROCESS
-    # @abstractmethod
-    # async def async_call_(self):
-    #     """async call"""
-    #     raise NotImplementedError
 
     @opentelemetry_tracer
     async def _async_execute(self, **inputs):
@@ -182,8 +184,6 @@ class BaseNode(BaseConnectable):
         except (Exception, BaseException) as exc:
             self.logger.error(f"Error: {str(exc)}")
             raise exc
-        # finally:
-            """"""
 
     def _callback(self, session_id, _output_values):
         self.iteration_counter[session_id] = self.iteration_counter.get(session_id, 0)
@@ -225,7 +225,6 @@ class BaseNode(BaseConnectable):
             self._error_callback(session_id, exc)
 
         try:
-            # TODO
             if isinstance(_output_values, Generator):
                 for _v in _output_values:
                     yield StateResponse(
@@ -268,4 +267,4 @@ class BaseNode(BaseConnectable):
             self.logger.debug(":BaseException:")
             self._error_callback(session_id, exc)
         finally:
-            self.count_visited += 1  # TODO cqju
+            self.count_visited += 1

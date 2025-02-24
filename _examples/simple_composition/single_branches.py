@@ -21,12 +21,12 @@ class MiddleNode_C(BaseNode):
         time.sleep(0.1)
         # return dict(outputs=inputs + "@" + self.name + "_C")
 
-        async def func():
-            output_val = inputs + "@" + self.name + "_C"
-            for i in range(3):
-                output_val += str(i)
-                yield dict(outputs=output_val)
-        return func()
+        # async def func():
+        output_val = inputs + "@" + self.name + "_C"
+        for i in range(3):
+            output_val += str(i)
+            yield dict(outputs=output_val)
+        # return func()
 
 @MakeNode.from_class(func_name="async_call", outputs=dict(outputs=str))
 class MiddleNode_D(BaseNode):

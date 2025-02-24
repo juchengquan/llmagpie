@@ -7,7 +7,7 @@ from llmagpie.base.node import MakeNode, BaseNode
 from typing import List, Dict
 
 
-@MakeNode.from_class(func_name="bolt", outputs={"tool_calls_list": List[Dict]})
+@MakeNode.from_class(func_name="fire", outputs={"tool_calls_list": List[Dict]})
 class ToolsNode(BaseNode):
     class Config:
         extra = "forbid"
@@ -36,7 +36,7 @@ class ToolsNode(BaseNode):
     def __str__(self):
         return self.__repr__()
 
-    async def bolt(self, tool_calls_list: List[Dict]):
+    async def fire(self, tool_calls_list: List[Dict]):
         with ThreadPoolExecutor(max_workers=4) as executor:
             for _i, ele in enumerate(tool_calls_list):
                 if ele.get("function", None):
