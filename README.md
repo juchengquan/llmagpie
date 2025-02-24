@@ -1,1 +1,1 @@
-# jibberchain
+# LLMagpie
