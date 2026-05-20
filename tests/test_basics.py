@@ -188,6 +188,20 @@ def test_tools_node_fires_each_tool():
 # the cached schema would silently diverge from the graph.
 # ---------------------------------------------------------------------------
 
+def test_pipeline_rejects_invoke_before_compile():
+    from llmagpie import BasePipeline
+
+    @MakeNode.from_function(name="a", outputs={"value": str})
+    def _a(value: str) -> str:
+        """A."""
+        return value
+
+    pipe = BasePipeline(name="pipe", nodes=[_a])
+    # No compile().
+    with pytest.raises(RuntimeError, match="not compiled"):
+        list(pipe.invoke(inputs={"a.value": "x"}))
+
+
 def test_pipeline_rejects_add_node_after_compile():
     from llmagpie import BasePipeline
 
@@ -204,5 +218,5 @@ def test_pipeline_rejects_add_node_after_compile():
         """B."""
         return value
 
-    with pytest.raises(AssertionError, match="has been compiled"):
+    with pytest.raises(RuntimeError, match="has been compiled"):
         pipe.add_nodes([_b])

@@ -267,10 +267,13 @@ class BaseConnectable(BaseStateStore):
                 
         session_id = uuid.uuid4().hex if not session_id else session_id
         try:
-            if self.connectable_type == ConnectableType.PIPELINE:
-                assert getattr(self, "is_compiled", None), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
+            if self.connectable_type == ConnectableType.PIPELINE and not getattr(self, "is_compiled", False):
+                raise RuntimeError(
+                    f"Pipeline {self.name} is not compiled yet; please compile it "
+                    "first using `pipe.compile()`."
+                )
             _inputs = self.precheck(session_id, inputs)
-            
+
             async_result = cast(AsyncGenerator,
                 self.async_event_on_execution(
                     inputs=_inputs,
@@ -306,8 +309,11 @@ class BaseConnectable(BaseStateStore):
         iteration finishes (either StopAsyncIteration or exception)."""
         session_id = uuid.uuid4().hex if not session_id else session_id
         try:
-            if self.connectable_type == ConnectableType.PIPELINE:
-                assert getattr(self, "is_compiled"), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
+            if self.connectable_type == ConnectableType.PIPELINE and not getattr(self, "is_compiled", False):
+                raise RuntimeError(
+                    f"Pipeline {self.name} is not compiled yet; please compile it "
+                    "first using `pipe.compile()`."
+                )
             _inputs = self.precheck(session_id, inputs)
             inner = cast(
                 AsyncGenerator,

@@ -20,8 +20,10 @@ class SingleDAG(DiGraph):
             self.nodes[n]["_obj"]._validate()
 
     def _validate_heads_and_tails(self):
-        assert len(self.head_nodes) >= 1, "The graph has no head node!"
-        assert len(self.tail_nodes) >= 1, "The graph has no end node!"
+        if len(self.head_nodes) < 1:
+            raise ValueError("The graph has no head node!")
+        if len(self.tail_nodes) < 1:
+            raise ValueError("The graph has no end node!")
    
 
     def _validate_edges_circular(self):

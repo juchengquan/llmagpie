@@ -127,17 +127,23 @@ class BaseNode(BaseConnectable):
            and that no unknown keys are bound.
 
         Raises:
-            AssertionError: If the node has already been bound to another pipeline.
-            AssertionError: If the required input parameters are not fully bound or if unknown keys are bound.
+            RuntimeError: If the node has already been bound to another pipeline.
+            ValueError: If the required input parameters are not fully bound or if unknown keys are bound.
         """
-        assert not self.is_bound, f"The node has already been bound to another pipeline: {self.pipeline}"
+        if self.is_bound:
+            raise RuntimeError(f"The node has already been bound to another pipeline: {self.pipeline}")
         self.is_bound = True
 
         # Check input bound status
         if not self.is_start:
-            assert set(self.func_schema.internal.input.required).issubset(set(self._input_keys_bound)) \
-                and set(self._input_keys_bound).issubset(set(self.func_schema.internal.input.all)), \
-                "Required inputs parameters are not fully bound. Or unknown keys bound."
+            bound = set(self._input_keys_bound)
+            required = set(self.func_schema.internal.input.required)
+            schema = set(self.func_schema.internal.input.all)
+            if not (required.issubset(bound) and bound.issubset(schema)):
+                raise ValueError(
+                    "Required input parameters are not fully bound, or unknown keys "
+                    f"bound. bound={bound}, required={required}, schema={schema}"
+                )
     
     @model_validator(mode="after")
     def _contruct_schemas(self):
@@ -158,17 +164,20 @@ class BaseNode(BaseConnectable):
     @opentelemetry_tracer
     async def _async_execute(self, **inputs):
         # parameter checking
-        if set(self.func_schema.internal.input.all) != set(inputs.keys()):
+        given = set(inputs.keys())
+        all_keys = set(self.func_schema.internal.input.all)
+        if given != all_keys:
             self.logger.warning(
-                f'{self.__class__.__name__}:{self.name}: '
-                f'Input parameters {set(inputs.keys())} does not align with the keys: '
-                f'{set(self.func_schema.internal.input.all)} -> checking required parameters')
+                f"{self.__class__.__name__}:{self.name}: "
+                f"Input parameters {given} does not align with the keys: "
+                f"{all_keys} -> checking required parameters"
+            )
 
-            assert set(self.func_schema.internal.input.required).issubset(set(inputs.keys())), \
-                (
-                    f'{self.__class__.__name__}:{self.name}: Required input parameters missing. '
-                    f'{set(self.func_schema.internal.input.required)} does not align with the '
-                    f'input keys: {set(inputs.keys())}'
+            required = set(self.func_schema.internal.input.required)
+            if not required.issubset(given):
+                raise ValueError(
+                    f"{self.__class__.__name__}:{self.name}: Required input parameters "
+                    f"missing. {required} does not align with the input keys: {given}"
                 )
 
         try:

@@ -100,8 +100,8 @@ class _BaseTypePipeline(BaseConnectable):
         Args:
             nodes: A sequence or dictionary of nodes to add to the pipeline.
         """
-        assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
-        """Add nodes."""
+        if self.is_compiled:
+            raise RuntimeError(f"Pipeline {self.name} has been compiled!")
         if isinstance(nodes, Sequence):
             for n in nodes:
                 self._add_node(n, n.name)
@@ -110,7 +110,8 @@ class _BaseTypePipeline(BaseConnectable):
                 self._add_node(n, n_name)
 
     def _add_node(self, node: BaseConnectable, node_key: str):
-        assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
+        if self.is_compiled:
+            raise RuntimeError(f"Pipeline {self.name} has been compiled!")
         if node not in self.nodes:
             self.nodes.append(node)
         # bind pipeline reference to node
@@ -129,23 +130,29 @@ class _BaseTypePipeline(BaseConnectable):
         dest_key: Union[List[str], str],
     ):
         """Add edge."""
-        assert self.is_compiled is False, f"Pipeline {self.name} has been compiled!"
+        if self.is_compiled:
+            raise RuntimeError(f"Pipeline {self.name} has been compiled!")
         if isinstance(src_key, str):
             src_key = [src_key]
         if isinstance(dest_key, str):
             dest_key = [dest_key]
-        
+
         o_schema = src_connectable.func_schema.internal.output.all
         i_schema = dest_connectable.func_schema.internal.input.all
         _in_keys, _out_keys = [], []
-        
+
         for i_key, o_key in zip(dest_key, src_key):
+            if i_key not in i_schema:
+                raise ValueError(f"{i_key} not in {i_schema}")
+            if o_key not in o_schema:
+                raise ValueError(f"{o_key} not in {o_schema}")
             o_key_schema = o_schema[o_key].get("type", "object")
             i_key_schema = i_schema[i_key].get("type", "object")
-            assert i_key_schema == o_key_schema, f'The schema does not align: input: {i_key}->{i_key_schema}; output: {o_key}->{o_key_schema}'
-            # check keys in schema
-            assert i_key in i_schema, f'{i_key} not in {i_schema}'
-            assert o_key in o_schema, f'{o_key} not in {o_schema}'
+            if i_key_schema != o_key_schema:
+                raise ValueError(
+                    f"The schema does not align: input: {i_key}->{i_key_schema}; "
+                    f"output: {o_key}->{o_key_schema}"
+                )
 
             # bind all output keys to input
             dest_connectable._input_keys_nodes_map[i_key] = dest_connectable._input_keys_nodes_map.get(i_key, [])
@@ -194,11 +201,16 @@ class _BaseTypePipeline(BaseConnectable):
         root_nodes: List[BaseConnectable]
     ):
         try:
-            _root_node_input_schema = set( self.func_schema.internal.input.all.keys() )
-            _root_node_required_input = set( self.func_schema.internal.input.required )
-            
-            assert set(_root_node_required_input).issubset(set(inputs.keys())) \
-                and set(inputs.keys()).issubset(_root_node_input_schema), "Required inputs parameters are not fully bound. Or unknown keys bound."
+            _root_node_input_schema = set(self.func_schema.internal.input.all.keys())
+            _root_node_required_input = set(self.func_schema.internal.input.required)
+
+            given = set(inputs.keys())
+            if not (_root_node_required_input.issubset(given) and given.issubset(_root_node_input_schema)):
+                raise ValueError(
+                    "Required input parameters are not fully bound, or unknown keys "
+                    f"bound. given={given}, required={_root_node_required_input}, "
+                    f"schema={_root_node_input_schema}"
+                )
 
             _task_dict = dict()
 
@@ -334,7 +346,11 @@ class _BaseTypePipeline(BaseConnectable):
     ) -> AsyncGenerator:
         """EXECUTION when the node is triggered."""
         try:
-            assert self.is_compiled, f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
+            if not self.is_compiled:
+                raise RuntimeError(
+                    f"Pipeline {self.name} is not compiled yet; please compile it "
+                    "first using `pipe.compile()`."
+                )
             aioloop = get_running_loop()
             self._running_status = NodeRunningStatus.RUNNING
             if inputs:
@@ -466,13 +482,15 @@ class BasePipeline(_BaseTypePipeline):
         # Check in-degree and out-degree of nodes (on pipeline)
         for _id in self.graph.nodes:
             _node = self.graph.nodes[_id]["_obj"]
-            assert (self.graph.in_degree(_id) == 0 and _node.is_start is True) \
-                or (self.graph.in_degree(_id) != 0 and _node.is_start is not True), \
-                f"{self.__class__.__name__} Pipeline In-degree is wrong."
-            assert (self.graph.out_degree(_id) == 0 and _node.is_end is True) \
-                or (self.graph.out_degree(_id) != 0 and _node.is_end is not True), \
-                f"{self.__class__.__name__} Pipeline Out-degree is wrong."
-        
+            in_ok = (self.graph.in_degree(_id) == 0 and _node.is_start is True) \
+                or (self.graph.in_degree(_id) != 0 and _node.is_start is not True)
+            if not in_ok:
+                raise ValueError(f"{self.__class__.__name__} pipeline in-degree is wrong for node {_node.name}.")
+            out_ok = (self.graph.out_degree(_id) == 0 and _node.is_end is True) \
+                or (self.graph.out_degree(_id) != 0 and _node.is_end is not True)
+            if not out_ok:
+                raise ValueError(f"{self.__class__.__name__} pipeline out-degree is wrong for node {_node.name}.")
+
     def _validate_root_nodes(self):
-        """"""
-        assert len(self.graph.head_nodes) >= 1, f"At least one root node is required in {self.__class__.__name__}."
+        if len(self.graph.head_nodes) < 1:
+            raise ValueError(f"At least one root node is required in {self.__class__.__name__}.")

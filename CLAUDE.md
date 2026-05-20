@@ -102,7 +102,3 @@ graph behavior but is too coarse for narrow correctness checks.
 
 - The `_examples/` leading underscore. It looks unusual for an examples
   directory but the test suite globs it by exact path.
-- The `pyproject_setup_legacy.toml` file. It's a deliberate stash of an
-  older packaging shape; deleting it without checking might break someone
-  else's setup pipeline.
-- The `(BaseException, Exception)` patterns (see above).
