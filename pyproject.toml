@@ -33,9 +33,7 @@ networkx = "^3.6"
 Deprecated = "^1.2"
 pytz = ">=2025.1"
 wrapt = ">=1.17.0"
-# Cap below 2.11 until base/node/_schema.py migrates `_SchemaConfig` off the
-# class-based pydantic config that breaks with pydantic >=2.11.
-pydantic = ">=2.8.0,<2.11.0"
+pydantic = "^2.8.0"
 httpx = "^0.28.0"
 
 sqlalchemy = { version = "^2.0.30", optional=true }

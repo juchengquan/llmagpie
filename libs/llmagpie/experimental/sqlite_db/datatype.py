@@ -18,4 +18,4 @@ class AppStateBase(Base):
     __tablename__ = "AppStates"
     id: Mapped[int] = Column(Integer, primary_key=True, index=True)
     key: Mapped[str] = Column(String, unique=True, index=True)
-    value: Mapped[str] = Column(String, unique=True, index=True)
+    value: Mapped[str] = Column(String, index=True)

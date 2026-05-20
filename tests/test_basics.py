@@ -9,6 +9,7 @@ from llmagpie.base.connectable import BaseConnectable
 from llmagpie.base.enum import ConnectableType
 from llmagpie.base.logging.logging_wrapper import log_output
 from llmagpie.base.node import BaseNode, MakeNode
+from llmagpie.base.utils.async_to_sync import exec_generator_in_event_loop
 
 
 class _Concrete(BaseConnectable):
@@ -54,6 +55,26 @@ def test_log_output_preserves_async_shape():
         return x + 1
 
     assert asyncio.run(async_fn(4)) == 5
+
+
+def test_exec_generator_propagates_exceptions():
+    """Exceptions from an async generator must raise out of the sync bridge,
+    not get yielded as opaque values to the caller."""
+
+    async def async_gen():
+        yield 1
+        raise ValueError("intentional")
+
+    loop = asyncio.new_event_loop()
+    try:
+        bridge = exec_generator_in_event_loop(async_gen(), loop)
+        seen = []
+        with pytest.raises(ValueError, match="intentional"):
+            for v in bridge:
+                seen.append(v)
+        assert seen == [1]
+    finally:
+        loop.close()
 
 
 def test_make_node_from_function_runs():

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 try:
     from chromadb import PersistentClient, HttpClient, Settings
     from chromadb.api import ClientAPI
@@ -11,8 +11,7 @@ from typing import List, Dict, Optional, Literal, Union, cast
 
 
 class ChromaDocument(BaseModel):
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     document: str

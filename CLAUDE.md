@@ -52,6 +52,18 @@ BaseConnectable           pydantic BaseModel; carries per-session state dicts
   plain functions.
 - **`isinstance` vs `Union`.** `isinstance(x, Union[A, B])` is not valid;
   use a tuple `isinstance(x, (A, B))`.
+- **Pydantic config style.** All models now use
+  `model_config = ConfigDict(...)`. Don't go back to the V1 `class Config:`
+  block — it triggers `PydanticDeprecatedSince20` warnings and breaks
+  with Pydantic >=2.11 when used as `create_model(__config__=SomeClass)`
+  (the old `_SchemaConfig` class in `base/node/_schema.py` caused exactly
+  this; it's now a `ConfigDict` dict literal).
+- **Exceptions in `exec_generator_in_event_loop`.** This sync bridge used
+  to catch async-iterator exceptions and yield them as opaque values, so
+  callers received `ValueError(...)` instead of having it raised. Don't
+  reintroduce that pattern — exceptions must propagate through
+  `loop.run_until_complete` and out of the generator. There's a
+  regression test in `tests/test_basics.py`.
 - **OTEL context detach.** `pipeline/_base.py` has a FIXME about
   `context.detach(token)` raising "ContextVar token was created in a
   different Context" when attach happens inside an async generator. The

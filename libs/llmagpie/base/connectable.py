@@ -6,7 +6,7 @@ from asyncio import get_running_loop, new_event_loop
 from logging import Logger
 
 
-from pydantic import Field, BaseModel, PrivateAttr
+from pydantic import ConfigDict, Field, BaseModel, PrivateAttr
 
 from llmagpie.base.enum import NodeRunningStatus, ConnectableType
 from llmagpie.base.logging import get_or_create_logger
@@ -53,10 +53,8 @@ class FunctionSchema(BaseModel):
 class BaseStateStore(BaseModel):
     """This class stores the state with upstream and downstream contexts.
     """
-    class Config:
-        extra = "forbid"
-        arbitrary_types_allowed: bool = True
-        
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
     input_state: InternalDictState = Field(default_factory=InternalDictState, description="Input object store that saves the input history of pipelines and nodes.")
     output_history_state: InternalDictState = Field(default_factory=InternalDictState, description="Output object store that saves the output history of all execution of nodes.")
     output_state: InternalDictState = Field(default_factory=InternalDictState, description="Output object store that saves the output history of all execution of nodes.")
@@ -68,9 +66,7 @@ class BaseStateStore(BaseModel):
                 obj.clear()
                 
 class BaseConnectDisposable(BaseModel):
-    class Config:
-        extra = "forbid"
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     connectable: BaseConnectable
     in_keys: List[str] = []
@@ -118,10 +114,8 @@ class BaseConnectDisposable(BaseModel):
 
 class BaseConnectable(BaseStateStore):
     """This is base connectable including node and pipeline"""
-    class Config:
-        extra = "forbid"
-        arbitrary_types_allowed = True
-    
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
     _id: str = PrivateAttr(default_factory=lambda: uuid.uuid4().hex)
     name: str = Field()
     """The unique name of the tool that clearly communicates its purpose."""

@@ -3,45 +3,38 @@ from typing import Any, Generator, AsyncGenerator
 from llmagpie.base.utils.thread import AsyncThread
 
 
+_DONE = object()  # sentinel for StopAsyncIteration
+
+
 def exec_generator_in_event_loop(async_generator: AsyncGenerator, loop: AbstractEventLoop) -> Generator:
     ait = async_generator.__aiter__()
 
-    async def _get_next() -> tuple[bool, Any]:
+    async def _get_next() -> Any:
         try:
-            res = await ait.__anext__()
-            done = False
+            return await ait.__anext__()
         except StopAsyncIteration:
-            res = None
-            done = True
-        except (BaseException, Exception) as exc:
-            res = exc
-            done = True
-        return done, res
-                    
+            return _DONE
+
     while True:
-        done, result = loop.run_until_complete(_get_next())
-        if done:
-            if result:
-                yield result
+        # Exceptions raised inside the async iterator propagate through
+        # `run_until_complete` and out of this generator — they must NOT be
+        # converted into yielded values, or callers would receive an
+        # exception object as a successful result.
+        result = loop.run_until_complete(_get_next())
+        if result is _DONE:
             break
-        else:
-            yield result
+        yield result
+
 
 def exec_generator_in_separated_thread(async_generator: AsyncGenerator, loop: AbstractEventLoop) -> Generator:
-    try:
+    thread = AsyncThread(coro=async_generator, loop=loop)
+    thread.start()
+    thread.join()
+    while thread.result is not None:
+        if isinstance(thread.result, BaseException):
+            raise thread.result
+        yield thread.result
         thread = AsyncThread(coro=async_generator, loop=loop)
         thread.start()
         thread.join()
-        while thread.result:
-            if not isinstance(thread.result, (BaseException, Exception)):
-                yield thread.result
-                thread = AsyncThread(coro=async_generator, loop=loop)
-                thread.start()
-                thread.join()
-            elif isinstance(thread.result, (StopAsyncIteration)):
-                break
-            else:
-                raise thread.result
-    except (BaseException, Exception) as exc:
-        raise exc
 

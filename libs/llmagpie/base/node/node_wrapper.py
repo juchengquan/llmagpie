@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import partial, wraps
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from inspect import getfullargspec, iscoroutinefunction, isasyncgenfunction
 
 from ._schema import create_schema_from_function, create_schema_from_types
@@ -73,10 +73,8 @@ class MakeNode:
                     return _async_wrapper 
                 
                 class AsNode(BaseNode):
-                    class Config:
-                        extra: str = "forbid"
-                        arbitrary_types_allowed: bool = True
-            
+                    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
                     async_call_ = staticmethod(_func_wrapper(func))
                     input_model_schema = cast(BaseModel, input_model)
                     output_model_schema = cast(BaseModel, output_model)

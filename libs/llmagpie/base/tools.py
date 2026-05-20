@@ -2,6 +2,7 @@
 import json
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
+from pydantic import ConfigDict
 from llmagpie.base.node import MakeNode, BaseNode
 # typing
 from typing import List, Dict
@@ -9,10 +10,8 @@ from typing import List, Dict
 
 @MakeNode.from_class(func_name="fire", outputs={"tool_calls_list": List[Dict]})
 class ToolsNode(BaseNode):
-    class Config:
-        extra = "forbid"
-        arbitrary_types_allowed: bool = True
-        
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
     tools: List[BaseNode]
     tools_with_mapping: Dict[str, BaseNode]
     max_workers: int = 4

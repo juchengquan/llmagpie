@@ -1,20 +1,25 @@
 from inspect import getfullargspec, signature, _empty
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 from typing import (
     cast, get_origin,
     Type, Callable, Any, Type, Dict, Annotated
 )
 
 
-class _SchemaConfig():
-    extra: str = "ignore"
-    arbitrary_types_allowed: bool = True
-        
-    @staticmethod
-    def json_schema_extra(schema: dict[str, Any], model) -> None:
-        for prop in schema.get('properties', {}).values():
-            prop.pop('title', None)
-        
+def _strip_titles(schema: Dict[str, Any], model) -> None:
+    for prop in schema.get('properties', {}).values():
+        prop.pop('title', None)
+
+
+# Pydantic >=2.11 dropped support for passing a class as `__config__` to
+# `create_model`; it must be a ConfigDict (dict-like) instead.
+_SCHEMA_CONFIG: ConfigDict = ConfigDict(
+    extra="ignore",
+    arbitrary_types_allowed=True,
+    json_schema_extra=_strip_titles,
+)
+
+
 def create_schema_from_types(
     name: str,
     types: Dict
@@ -43,7 +48,7 @@ def create_schema_from_types(
         p_field = Field(default=None, description=p_description)
     
         fields[p_name] = (p_type, p_field)
-    return create_model(name + "_Output", __config__=_SchemaConfig, **fields)  # type: ignore
+    return create_model(name + "_Output", __config__=_SCHEMA_CONFIG, **fields)  # type: ignore
 
 def create_schema_from_function(
     function: Callable,
@@ -94,4 +99,4 @@ def create_schema_from_function(
     
         fields[p_name] = (p_type, p_field)
 
-    return create_model(function_name, __config__=_SchemaConfig, **fields)  # type: ignore
+    return create_model(function_name, __config__=_SCHEMA_CONFIG, **fields)  # type: ignore

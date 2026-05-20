@@ -4,7 +4,7 @@ import time
 from asyncio import CancelledError
 from asyncio import get_running_loop, new_event_loop
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from llmagpie.base.enum import NodeRunningStatus, ConnectableType
 from llmagpie.base.connectable import BaseConnectable, FunctionSchema
@@ -25,9 +25,8 @@ class BaseNode(BaseConnectable):
     A base class for all nodes in the system. It provides basic functionality for
     connecting, disconnecting and managing the state of the node.
     """
-    class Config:
-        extra = "forbid"
-        
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
     class _ArgsSchemaPlaceholder(BaseModel):
         pass
 
