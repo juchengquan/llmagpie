@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Pin Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync (with dev + extras)
+        run: uv sync --python ${{ matrix.python-version }} --group dev --extra opentelemetry --extra openai
+
+      - name: Run tests
+        run: uv run --python ${{ matrix.python-version }} pytest -q
+
+      - name: Build sdist + wheel
+        if: matrix.python-version == '3.12'
+        run: uv build
