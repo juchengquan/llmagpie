@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `BaseConnectable` exported at the top level
+  (`from llmagpie import BaseConnectable`) so users can type-hint
+  "any connectable" without reaching into the internal namespace. Added
+  to `llmagpie.__all__` and `llmagpie.base.__all__`.
+- GitHub issue templates (bug report YAML form, feature request,
+  discussions link) and a PR template with the local-check checklist.
+- CodeQL security scanning workflow (`security-and-quality` queries,
+  weekly schedule + push/PR triggers).
 - GitHub Actions CI: lint (ruff), typecheck (mypy), test matrix (Python
   3.12 / 3.13), coverage upload, and wheel/sdist build smoke test.
 - Coverage threshold: `[tool.coverage.report] fail_under = 75`. Pytest

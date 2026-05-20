@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / how-do-I
+    url: https://github.com/juchengquan/llmagpie/discussions
+    about: Open a Discussion if you're not sure whether it's a bug.

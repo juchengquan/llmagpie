@@ -98,6 +98,19 @@ When fixing a bug worth caring about, add a unit test in
 `tests/test_basics.py` first — the example suite catches regressions in
 graph behavior but is too coarse for narrow correctness checks.
 
+## Public API surface
+
+- `from llmagpie import BaseNode, BasePipeline, MakeNode, BaseConnectable`
+  is the sanctioned import path. `BaseConnectable` is exported so users
+  writing functions that operate over "any connectable" can type-hint
+  it; direct subclassing is rare but supported.
+- `node._id` is an intentional cross-module private attribute. It's
+  used as the graph key in `pipeline/_base.py` and `pipeline/_dag.py`.
+  Don't rename to `id` (would clash with the Python builtin) and don't
+  promote to a public property — users shouldn't need it; if they do,
+  they're probably doing something unusual that the operator-overload
+  API doesn't cover.
+
 ## Don't change in passing
 
 - The `_examples/` leading underscore. It looks unusual for an examples
