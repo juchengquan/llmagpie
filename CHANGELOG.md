@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Token streaming** — `BaseLLMNode.stream_complete()` async-generator
+  hook + `StreamChunk` type for incremental updates +
+  `BaseLLMNode.collect_stream()` reducer for assembling chunks back
+  into an `LLMResponse`. `OllamaChatNode` and `OpenAIChatNode`
+  implement it; `Agent.stream(user_message, ...)` yields chunks from
+  a single underlying call and (when memory is attached) persists
+  the assembled exchange after the stream completes.
+- **`OpenAIChatNode`** (`experimental/nodes/generators/openai_node.py`)
+  — the recommended OpenAI integration built on `BaseLLMNode`. Composes
+  with `Agent`, `MemoryNode`, `CachedLLMNode`, structured outputs, and
+  streaming. The legacy `OpenAIChatCompletionWithToolCall` stays in
+  place for backwards compatibility.
+- **`RecordReplayLLMNode`** (`experimental/nodes/generators/record_replay.py`)
+  — wrap any `BaseLLMNode` to record real provider exchanges to a
+  JSON-lines tape, then replay deterministically in CI. Three modes
+  (`replay` / `record` / `auto`). Raises `TapeMissError` with an
+  actionable request preview when a replay test drifts.
+- **Budget enforcement on `Agent`** — `max_tokens_per_run`,
+  `max_cost_per_run`, `cost_per_1k_tokens` price table, and
+  `BudgetExceededError`. Checked after every provider round-trip so
+  tool-call loops can't silently overspend. `Agent.cost_of(usage)`
+  is exposed for arbitrary `LLMUsage` aggregations.
+- **Semantic stop conditions** — `BaseLLMNode.stop_condition` plumbed
+  through the tool-call loop, with factory helpers in
+  `experimental/nodes/generators/stop.py`: `stop_on_content_match`,
+  `stop_on_tool_name`, `stop_on_finish_reason`, and `any_of`.
+- Three runnable example scripts under `_examples/agents/` (chatbot,
+  multi-turn memory, tools+budget+stop+cost reporting), wired into
+  the test suite via the example-discovery runner.
 - `Agent` (`experimental/agent.py`) — high-level wrapper that composes
   `BaseLLMNode` with optional memory, cache, tools, and
   structured-output validation into a single `run(user_message, ...)`
