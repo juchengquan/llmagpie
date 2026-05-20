@@ -18,8 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   weekly schedule + push/PR triggers).
 - GitHub Actions CI: lint (ruff), typecheck (mypy), test matrix (Python
   3.12 / 3.13), coverage upload, and wheel/sdist build smoke test.
-- Coverage threshold: `[tool.coverage.report] fail_under = 75`. Pytest
+- Coverage threshold: `[tool.coverage.report] fail_under = 90`. Pytest
   exits non-zero if total branch coverage drops below the threshold.
+  `[tool.coverage.run] omit` now excludes `core/opentelemetry/*` —
+  the OTEL decorator's real branches only fire with a configured
+  collector, which CI doesn't run.
 - Subprocess coverage merging in `tests/test_examples.py`: examples
   run under `coverage run --parallel-mode` when pytest-cov is active,
   so the integration runs contribute to the same report. Pushed
