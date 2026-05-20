@@ -75,12 +75,13 @@ BaseConnectable           pydantic BaseModel; carries per-session state dicts
   `OpenAIChatCompletionWithToolCall.num_tool_calls` leak across
   invocations if not reset. The current fix resets at the top of
   `async_call`; a fuller solution would key the counter by `session_id`.
-- **Don't dedupe `(BaseException, Exception)` catches** without checking —
-  they're scattered through `connectable.py`, `node/_base.py`,
-  `pipeline/_base.py`, and the utils. They look redundant (`Exception`
-  is a subclass of `BaseException`) but the tuple form deliberately
-  catches `KeyboardInterrupt` / `SystemExit` too. Leave them unless
-  you're sure the call site shouldn't catch those.
+- **Library catches `except Exception`, not `BaseException`.**
+  `KeyboardInterrupt` / `SystemExit` propagate through to the outer
+  `finally` blocks in `invoke()` / `async_invoke()` so cleanup still
+  runs, but the user can Ctrl+C out without the library
+  short-circuiting that as a "node error". The previous code used a
+  redundant `(BaseException, Exception)` tuple that was effectively
+  `BaseException` and obscured intent.
 
 ## Tests
 

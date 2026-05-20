@@ -54,6 +54,18 @@ for state in pipe.invoke(inputs={"greet.name": "world"}):
 More patterns — branching, looping, nested pipelines, conditional emission,
 streaming, multi-input merge — live in [`_examples/simple_composition/`](_examples/simple_composition/).
 
+| Pattern | Example |
+|---|---|
+| Linear chain, two nodes, single input | `single_pipeline_stack.py` |
+| Two upstream nodes merging into one downstream | `single_pipeline_merged.py` |
+| Fan-out: one parent into multiple branches that re-join | `single_branches.py`, `chained_branches.py` |
+| Multiple parents feeding a single child (multi-input) | `multi_input_with_loop.py` |
+| Looping back to an earlier node until a condition holds | `single_input_with_loop.py`, `multi_input_with_loop.py` |
+| Conditional emission via `cond_func` on the node | `condition_in_node.py`, `condition_in_basenode.py` |
+| Allow a step to skip emission without aborting the pipeline | `single_allow_no_emission.py` |
+| Async-iterator streaming output between steps | `single_streaming.py` |
+| Composing a pipeline as a node inside an outer pipeline | `nested_pipeline.py`, `chained_with_pipe.py`, `chained_nested_pipe.py` |
+
 ## Mental model
 
 ```

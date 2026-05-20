@@ -30,8 +30,10 @@ class AsyncThread(Thread):
             else:
                 raise TypeError("Input coro type is wrong.")
                 
-        except StopAsyncIteration as exc:
+        except StopAsyncIteration:
             self.result = None
-        except (Exception, BaseException) as exc:
+        except Exception as exc:
+            # Thread.run swallows raises into stderr; the bridge in
+            # async_to_sync reads `result` to detect failure, so store the
+            # exception there. KeyboardInterrupt / SystemExit propagate.
             self.result = exc
-            raise exc

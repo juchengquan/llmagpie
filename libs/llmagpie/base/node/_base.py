@@ -213,7 +213,7 @@ class BaseNode(BaseConnectable):
         except CancelledError as exc:
             exc = Exception(f"{self.name}: The task has been cancelled: {exc}")
             self._error_callback(session_id, exc)
-        except (BaseException, Exception) as exc:
+        except Exception as exc:
             self._error_callback(session_id, exc)
 
         try:
@@ -255,7 +255,7 @@ class BaseNode(BaseConnectable):
             self.logger.debug(":GeneratorExit:")
             # pass
             raise exc
-        except (Exception, BaseException) as exc:
+        except Exception as exc:
             self.logger.debug(":BaseException:")
             self._error_callback(session_id, exc)
         finally:

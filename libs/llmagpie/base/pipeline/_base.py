@@ -237,7 +237,7 @@ class _BaseTypePipeline(BaseConnectable):
                     })
 
             return _task_dict
-        except (BaseException, Exception) as exc:
+        except Exception as exc:
             self._error_callback(session_id, exc)
 
     def _collect_children_tasks(
@@ -281,29 +281,29 @@ class _BaseTypePipeline(BaseConnectable):
                     
                     _inputs = child.precheck(session_id=session_id)
                     if _inputs:
-                        self.logger.debug(f"{parent.name} -> emitted to -> {child.name}")
+                        self.logger.debug("%s -> emitted to -> %s", parent.name, child.name)
                         iterator_target = child.async_event_on_execution(
                             session_id=session_id,
                             inputs=_inputs,
                         )
-                    
+
                         iterator_dt.update({
                             iterator_target: {
-                                "node_id": child._id, 
+                                "node_id": child._id,
                                 "node_name": child.name,
                                 "iterator": iterator_target,
                                 # "task"
                             }
                         })
                     else:
-                        self.logger.debug(f"{parent.name} -> emitted to -> {child.name} but NOT executed")
+                        self.logger.debug("%s -> emitted to -> %s but NOT executed", parent.name, child.name)
                 else:
-                    self.logger.debug(f"{parent.name} -> NOT emitted to -> {child.name}: Input empty")
+                    self.logger.debug("%s -> NOT emitted to -> %s: Input empty", parent.name, child.name)
             return iterator_dt
 
         except CancelledError as exc:
             self._error_callback(session_id, Exception(f"{parent.name}: Task async_emit has been cancelled. {exc}"))
-        except (Exception, BaseException) as exc:
+        except Exception as exc:
             self._error_callback(session_id, exc)
 
     def _callback(self, session_id):
@@ -397,8 +397,8 @@ class _BaseTypePipeline(BaseConnectable):
                                     context.attach(current_ctx)
                             del response
 
-                        except StopAsyncIteration: # 
-                            self.logger.debug(f"{node_name}: StopAsyncIteration")
+                        except StopAsyncIteration:
+                            self.logger.debug("%s: StopAsyncIteration", node_name)
                             del iterator_dict[iterator]
 
                             _parent = self.graph.nodes[node_id]["_obj"]
@@ -458,7 +458,7 @@ class _BaseTypePipeline(BaseConnectable):
                 # context.detach(token)
                 
             self._running_status = NodeRunningStatus.INACTIVE
-        except (BaseException, Exception) as exc:
+        except Exception as exc:
             self._error_callback(session_id, exc)
         finally:
             self.count_visited += 1

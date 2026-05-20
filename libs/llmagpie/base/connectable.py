@@ -185,7 +185,7 @@ class BaseConnectable(BaseStateStore):
     ) -> AsyncGenerator:
         raise NotImplementedError
 
-    def _error_callback(self, session_id: str, exc: Union[Exception, BaseException]):
+    def _error_callback(self, session_id: str, exc: Exception):
         self.clean_states(session_id)
         self._running_status = NodeRunningStatus.ERROR
         self.logger.error(f"Error on {self.name} -> {exc}")
@@ -244,7 +244,7 @@ class BaseConnectable(BaseStateStore):
                 return None
             
             return inputs
-        except (BaseException, Exception) as exc:
+        except Exception as exc:
             self._error_callback(session_id, exc)
     
     @final
@@ -278,7 +278,7 @@ class BaseConnectable(BaseStateStore):
                     **kwargs
                 )
             )
-        except (BaseException, Exception) as exc:
+        except Exception as exc:
             self._error_callback(session_id, exc)
 
         try:
@@ -289,7 +289,7 @@ class BaseConnectable(BaseStateStore):
                         
             if _is_new_loop:
                 aioloop.close()
-        except (BaseException, Exception) as exc:
+        except Exception as exc:
             self._error_callback(session_id, exc)
         finally:
             self.clean_states(session_id)
@@ -317,7 +317,7 @@ class BaseConnectable(BaseStateStore):
                     **kwargs,
                 ),
             )
-        except (BaseException, Exception) as exc:
+        except Exception as exc:
             # `_error_callback` raises; `clean_states` runs inside it.
             self._error_callback(session_id, exc)
 
