@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a new feature or API improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        What can't you do today with the current API, and what's the
+        workaround you're using?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        Rough API sketch or behavior change. Doesn't need to be a
+        complete design.
+      render: python
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        Other ways to solve the same problem; why you didn't pick them.

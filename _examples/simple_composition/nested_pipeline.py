@@ -6,15 +6,15 @@ from llmagpie.base.pipeline import BasePipeline
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EntryNode(BaseNode):
     identifier: str
-    
+
     async def _trigger(self, inputs: str):
         await asyncio.sleep(0.1)
         return dict(outputs=inputs + "@" + self.identifier)
-    
+
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EndNode(BaseNode):
     identifier: str
-    
+
     async def _trigger(self, inputs: str):
         self.logger.debug("END!")
         await asyncio.sleep(0.1)
@@ -33,11 +33,11 @@ if __name__ == "__main__":
     # (b1 >> "outputs") >> ("inputs" >> b2)
     p_b.add_edge(b1, b2, "outputs", "inputs")
     p_b.compile()
-    
+
     p_c = BasePipeline(name="CC_PIPELINE", nodes=[c1, c2])
     (c1 >> "outputs") >> ("inputs" >> c2)
     p_c.compile()
-    
+
     mid_p = BasePipeline(name="MID", nodes=[p_b, p_c])
     (p_b >> "B2.outputs") >> ("C1.inputs" >> p_c)
     mid_p.compile()

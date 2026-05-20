@@ -1,6 +1,6 @@
 import time
 from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import BasePipeline 
+from llmagpie.base.pipeline import BasePipeline
 
 
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
@@ -25,7 +25,7 @@ class MiddleNode_C(BaseNode):
             if self.cond_func(input_value=inputs)==False:
                 print("self.cond_func: ",self.cond_func(input_value=inputs))
                 return dict(outputs=inputs + "@" + self.name + "_C")
-            else: 
+            else:
                 self.logger.error("Condition not met.")
                 return None
         except Exception as err:
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     # c = MiddleNode_C(name="C", cond_func=continue_node, inputs_to_cond={"input_value":"inputs"})
     e = MiddleNode_E(name="E")
     d = MiddleNode_D(name="D")
-    
+
     pipe = BasePipeline(name="OUTER", nodes=[a, b, c, e, d])
 
     (a >> "outputs") >> ("inputs" >> b)

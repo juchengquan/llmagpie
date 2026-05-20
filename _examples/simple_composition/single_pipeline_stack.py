@@ -1,6 +1,6 @@
 import time
 from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import BasePipeline 
+from llmagpie.base.pipeline import BasePipeline
 
 
 @MakeNode.from_class(func_name="async_call", outputs=dict(entry_outputs=str))
@@ -13,7 +13,7 @@ class StartNode(BaseNode):
 class MiddleNode_B(BaseNode):
     counter: int = 0
     #max_visit_count = 3
-    
+
     async def async_call(self, initial_inputs: str, other_input1: str="loop data1",other_input2: str="loop data2"):
         time.sleep(0.1)
         self.counter += 1
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     a = StartNode(name="A")
     b = MiddleNode_B(name="B")
     c = EndNode(name="C")
-    
+
     pipe = BasePipeline(name="OUTER", nodes=[a, b, c])
 
     (a >> "entry_outputs") >> ("initial_inputs" >> b)
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     inputs = {
         "A.inputs": "Hello"
     }
-    
+
     response = pipe.invoke(inputs=inputs)
     for ele in response:
         print(ele)

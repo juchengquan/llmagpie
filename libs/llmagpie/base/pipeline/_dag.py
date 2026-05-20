@@ -5,12 +5,14 @@ class SingleDAG(DiGraph):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def validate(self): #  -> "Self":
+    def validate(self):
         self._validate_heads_and_tails()
         self._validate_nodes()
 
-        # self._validate_edges_circular()  # TODO: currently no circles are allowed
-        # return self
+        # TODO: cycle detection (_validate_edges_circular) is intentionally disabled.
+        # Loop-style pipelines currently rely on revisiting nodes; enable this once
+        # explicit loop edges are modeled separately from data-flow edges.
+        # self._validate_edges_circular()
 
     def _validate_nodes(self):
         # check node
@@ -18,9 +20,10 @@ class SingleDAG(DiGraph):
             self.nodes[n]["_obj"]._validate()
 
     def _validate_heads_and_tails(self):
-        assert len(self.head_nodes) >= 1, "The graph has no head node!"
-        assert len(self.tail_nodes) >= 1, "The graph has no end node!"
-   
+        if len(self.head_nodes) < 1:
+            raise ValueError("The graph has no head node!")
+        if len(self.tail_nodes) < 1:
+            raise ValueError("The graph has no end node!")
 
     def _validate_edges_circular(self):
         assert is_directed_acyclic_graph(self) is True, "Graph must be directed acyclic."

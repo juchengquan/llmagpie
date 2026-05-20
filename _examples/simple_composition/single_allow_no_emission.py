@@ -55,9 +55,9 @@ if __name__ == "__main__":
         response = pipe.invoke(inputs=inputs)
         for ele in response:
             print(">>>", ele)
-    
+
     asyncio.run(shell())
-    
+
     # response = pipe.invoke(inputs=inputs)
     # for ele in response:
     #     print(ele)

@@ -1,39 +1,40 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
 try:
-    from chromadb import PersistentClient, HttpClient, Settings
+    from chromadb import HttpClient, PersistentClient
     from chromadb.api import ClientAPI
     from chromadb.config import Settings
-    _CRHOMADB_INSTALLED = True
+
+    _CHROMADB_INSTALLED = True
 except ImportError:
-    _CRHOMADB_INSTALLED = False
+    _CHROMADB_INSTALLED = False
 # typing
-from typing import List, Dict, Optional, Literal, Union, cast
+from typing import Literal, cast
 
 
 class ChromaDocument(BaseModel):
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     document: str
-    embedding: List[float]
-    metadata: Dict
+    embedding: list[float]
+    metadata: dict
 
 
 class ChromaDBStore:
     client: ClientAPI
     mode: Literal["local", "client"]
-    host: Optional[str] = None
-    port: Optional[str] = None
-    persistent_path: Optional[str] = None
+    host: str | None = None
+    port: str | None = None
+    persistent_path: str | None = None
 
     def __init__(
         self,
-        persistent_path: Optional[str] = None,
+        persistent_path: str | None = None,
         host: str = "localhost",
-        port: Union[int, str] = "9999",
+        port: int | str = "9999",
     ):
-        if _CRHOMADB_INSTALLED is False:
+        if _CHROMADB_INSTALLED is False:
             raise ImportError(
                 "Could not import chromadb python package. "
                 "Please install it with `pip install chromadb`."
@@ -41,9 +42,7 @@ class ChromaDBStore:
         if persistent_path is not None:
             self.client = PersistentClient(
                 path=persistent_path,
-                settings=Settings(
-                    anonymized_telemetry=False,
-                    allow_reset=True),
+                settings=Settings(anonymized_telemetry=False, allow_reset=True),
             )
             self.persistent_path = persistent_path
             self.mode = "local"
@@ -52,9 +51,7 @@ class ChromaDBStore:
             self.client = HttpClient(
                 host=host,
                 port=cast(int, port),
-                settings=Settings(
-                    anonymized_telemetry=False,
-                    allow_reset=True),
+                settings=Settings(anonymized_telemetry=False, allow_reset=True),
             )
             self.host = host
             self.port = cast(str, port)
@@ -81,38 +78,42 @@ class ChromaDBStore:
 
     def add_document(self, collection_name: str, document: ChromaDocument):
         """"""
-        self.get_collection(collection_name, create_if_not_exist=False) \
-            .add(
-                ids=document.id,
-                documents=document.document,
-                embeddings=document.embedding,
-                metadatas=document.metadata)
+        self.get_collection(collection_name, create_if_not_exist=False).add(
+            ids=document.id,
+            documents=document.document,
+            embeddings=document.embedding,
+            metadatas=document.metadata,
+        )
 
-    def add_documents(self, collection_name: str, documents: List[ChromaDocument]):
+    def add_documents(self, collection_name: str, documents: list[ChromaDocument]):
         """"""
-        ids, documents, embeddings, metadatas = \
-            ([getattr(d, k) for d in documents] for k in ("id", "document", "embedding", "metadata"))
+        ids, documents, embeddings, metadatas = (
+            [getattr(d, k) for d in documents] for k in ("id", "document", "embedding", "metadata")
+        )
 
-        self.get_collection(collection_name, create_if_not_exist=False) \
-            .add(
-                ids=ids,
-                documents=documents,
-                embeddings=embeddings,
-                metadatas=metadatas,)
+        self.get_collection(collection_name, create_if_not_exist=False).add(
+            ids=ids,
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
 
     def query_embeddings(
         self,
         collection_name: str,
-        query_embeddings: List,
+        query_embeddings: list,
         top_k: int = 10,
-        include: List[Union[Literal['documents'], Literal['embeddings'], Literal['metadatas'], Literal['distances'], Literal['uris'], Literal['data']]] = ['metadatas', 'documents', 'distances'],
+        include: list[Literal["documents", "embeddings", "metadatas", "distances", "uris", "data"]]
+        | None = None,
     ):
         """"""
-        return self.get_collection(collection_name, create_if_not_exist=False) \
-            .query(
-                query_embeddings=query_embeddings,
-                n_results=top_k,
-                include=include,)
+        if include is None:
+            include = ["metadatas", "documents", "distances"]
+        return self.get_collection(collection_name, create_if_not_exist=False).query(
+            query_embeddings=query_embeddings,
+            n_results=top_k,
+            include=include,
+        )
 
     def purge_database(self):
         """"""
@@ -120,18 +121,9 @@ class ChromaDBStore:
             self.client.reset()
             self.client = PersistentClient(
                 path=self.persistent_path,
-                settings=Settings(
-                    anonymized_telemetry=False,
-                    allow_reset=True),
+                settings=Settings(anonymized_telemetry=False, allow_reset=True),
             )
         elif self.mode == "client":
             raise ValueError("Purge is not allowed in remote mode.")
-            # self.client = HttpClient(
-            #     host=host,
-            #     port=port,
-            #     settings=Settings(
-            #         anonymized_telemetry=False,
-            #         allow_reset=True),
-            # )
         else:
-            raise ValueError
+            raise ValueError(f"Unknown mode: {self.mode!r}")

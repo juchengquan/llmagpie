@@ -41,16 +41,16 @@ if __name__ == "__main__":
     p_b.compile()
     (c1 >> "outputs") >> ("inputs" >> c2)
     p_c.compile()
-    
+
     pipe = BasePipeline(name="OUTER", nodes=[a, p_b, p_c, d])
-    
+
     (a >> "outputs") >> ("B1.inputs" >> p_b)
     (p_b >> "B2.outputs") >> ("C1.inputs" >> p_c)
     (p_c >> "C2.outputs") >> ("inputs" >> d)
 
     pipe.compile()
     print("Finished compiling")
-    
+
     inputs = {
         "AA.inputs": "Hello"
     }

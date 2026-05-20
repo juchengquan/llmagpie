@@ -1,4 +1,4 @@
-from sqlalchemy import String, LargeBinary, Column, Double, Integer
+from sqlalchemy import Column, Double, Integer, LargeBinary, String
 from sqlalchemy.orm import DeclarativeBase, Mapped
 
 
@@ -18,4 +18,4 @@ class AppStateBase(Base):
     __tablename__ = "AppStates"
     id: Mapped[int] = Column(Integer, primary_key=True, index=True)
     key: Mapped[str] = Column(String, unique=True, index=True)
-    value: Mapped[str] = Column(String, unique=True, index=True)
+    value: Mapped[str] = Column(String, index=True)

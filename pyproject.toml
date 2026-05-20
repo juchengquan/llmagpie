@@ -1,33 +1,128 @@
-[tool.poetry]
+[project]
 name = "llmagpie"
 version = "0.0.0"
-description = ""
-authors = ["blackmount8 <blackmount8@gmail.com>"]
+description = "A lightweight Python framework for composing LLM pipelines from nodes and DAGs."
 readme = "README.md"
-packages = [
-    {include="llmagpie", from="libs"}
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+authors = [
+    { name = "blackmount8", email = "blackmount8@gmail.com" },
+]
+keywords = ["llm", "pipeline", "dag", "agent", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "networkx>=3.6,<4",
+    "Deprecated>=1.2,<2",
+    "pytz>=2025.1",
+    "wrapt>=1.17.0",
+    "pydantic>=2.8.0,<3",
+    "httpx>=0.28.0,<0.29",
+]
+
+[project.optional-dependencies]
+exp = [
+    "sqlalchemy>=2.0.30,<3",
+    "chromadb>=1.0.0,<2",
+]
+openai = [
+    "openai>=1.50,<3.0",
+]
+opentelemetry = [
+    "opentelemetry-api>=1.30,<2",
+    "opentelemetry-sdk>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/juchengquan/llmagpie"
+Repository = "https://github.com/juchengquan/llmagpie"
+Issues = "https://github.com/juchengquan/llmagpie/issues"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pre-commit>=4.0",
+    "pytest>=9.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.15.0",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = false
+
+[tool.coverage.run]
+source = ["libs/llmagpie"]
+branch = true
+parallel = true
+omit = ["libs/llmagpie/experimental/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 75
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["_examples"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line too long (we already use 100; remaining cases are URLs/strings)
+    "UP047", # PEP 695 generic function syntax (too aggressive)
+    "B008",  # function call in default arg (pydantic Field() is the canonical pattern)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "B007",  # unused loop variable (test fixtures often have these)
+    "F811",  # redefinition (test parametrisation sometimes shadows)
 ]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.poetry.dependencies]
-python = "^3.10"
-networkx = "^3.4.0"
-Deprecated = "^1.0"
-pytz = ">=2024.2"
-wrapt = ">=1.17.0"
-pydantic = "^2.8.0"
-httpx = "^0.27.0"
+[tool.hatch.build.targets.wheel]
+packages = ["libs/llmagpie"]
 
-sqlalchemy = { version = "^2.0.6", optional=true }
-chromadb = {version = "^0.5.0", optional=true }
-opentelemetry-api = { version = "^1.28.2", optional=true }
-opentelemetry-sdk = { version = "^1.28.2", optional=true }
-opentelemetry-exporter-otlp-proto-grpc = { version = "^1.28.2", optional=true }
-opentelemetry-exporter-otlp-proto-http = { version = "^1.28.2", optional=true }
+[tool.hatch.build.targets.sdist]
+include = [
+    "libs/llmagpie",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
 
-[tool.poetry.extras]
-exp = ["sqlalchemy", "chromadb"]
-opentelemetry = ["opentelemetry-api", "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-grpc", "opentelemetry-exporter-otlp-proto-http"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["libs"]
+addopts = "-ra"

@@ -1,56 +1,55 @@
-import os
-import wrapt
 import json
+import os
 import warnings
-from asyncio import (
-    as_completed,
-    create_task,
-    run as asyncio_run,
-)
-
-# 
-from inspect import BoundArguments, Parameter, signature, iscoroutinefunction
-
+from collections.abc import Callable
 from functools import partial
+from inspect import BoundArguments, Parameter, iscoroutinefunction, signature
+
 # typing
-from typing import Union, Callable, Dict, Any, Optional, cast
+from typing import Any, Optional, cast
+
+import wrapt
 from pydantic import BaseModel
 from pydantic._internal._model_construction import ModelMetaclass
 
-
+OTEL_ENABLED: bool
 try:
-    from opentelemetry import trace, context
-    from opentelemetry.trace.status import Status, StatusCode
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor, BatchSpanProcessor, ConsoleSpanExporter
-
+    from opentelemetry import context, trace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import Resource
-    
-    OTEL_ENABLED: bool = True
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.trace.status import Status, StatusCode
+
+    OTEL_ENABLED = True
 except ImportError:
-    warnings.warn("opentelemetry-python is not installed")
-    OTEL_ENABLED: bool = False
-    trace, context = None, None
+    warnings.warn("opentelemetry-python is not installed", stacklevel=2)
+    OTEL_ENABLED = False
+    trace = None  # type: ignore[assignment]
+    context = None  # type: ignore[assignment]
+
+
+_DEFAULT_TRACER_ATTRIBUTES: dict = {
+    "openinference.project.name": "OpenTelemeTry Project Name",  # Optional
+    "service.name": "OpenTelemeTry Project Name",
+}
 
 
 def _initialize_default_remote_tracer(
-    attributes: Dict = {
-            "openinference.project.name": "OpenTelemeTry Project Name",  # Optional
-            "service.name": "OpenTelemeTry Project Name"
-        }
-    ):
+    attributes: dict | None = None,
+):
+    if attributes is None:
+        attributes = dict(_DEFAULT_TRACER_ATTRIBUTES)
     # Project based resource
-    resource = Resource.create(
-        attributes=attributes
-    )
+    resource = Resource.create(attributes=attributes)
     remote_tracer_provider = TracerProvider(resource=resource)
 
     span_exporter = OTLPSpanExporter(endpoint=os.environ["OTEL_COLLECTOR_ENDPOINT"])
     service_span_processor = BatchSpanProcessor(span_exporter=span_exporter)
 
-    remote_tracer_provider.add_span_processor(service_span_processor)  # can add multiple 
+    remote_tracer_provider.add_span_processor(service_span_processor)  # can add multiple
     trace.set_tracer_provider(remote_tracer_provider)  # IMPORTANT: for default, set only once
+
 
 def _get_default_tracer(tracer_provider: Optional["TracerProvider"] = None):
     # get default tracer
@@ -63,6 +62,7 @@ def _get_default_tracer(tracer_provider: Optional["TracerProvider"] = None):
     #     config=TraceConfig(),
     # )
     return tracer
+
 
 def _get_bound_arguments(function: Callable[..., Any], *args: Any, **kwargs: Any) -> BoundArguments:
     """
@@ -90,9 +90,10 @@ class WrapDecorator:
     handles both synchronous and asynchronous functions.  It also handles Pydantic models as
     function outputs, converting them to dictionaries before adding them to the span attributes.
     """
+
     def __init__(self, tracer):
         self._tracer = tracer
-    
+
     @classmethod
     def _get_instance_info(cls, instance):
         if hasattr(instance, "name"):
@@ -101,7 +102,7 @@ class WrapDecorator:
         instance_id = instance._id
         name = f"{instance_name} {instance_id}"
         return name
-        
+
     def __call__(self, func=None):
         if func is None:
             return partial(self.__call__)
@@ -109,134 +110,99 @@ class WrapDecorator:
         @wrapt.decorator
         def wrapper(func, instance, args, kwargs):
             name = self._get_instance_info(instance)
-            
+
             func_bound_args = _get_bound_arguments(func, *args, **kwargs)
             func_arguments = func_bound_args.kwargs
-            
+
             with self._tracer.start_as_current_span(name=name) as span:
-                span.set_attributes({
-                    "input.value": json.dumps(func_arguments, default=str, ensure_ascii=False),
-                })
+                span.set_attributes(
+                    {
+                        "input.value": json.dumps(func_arguments, default=str, ensure_ascii=False),
+                    }
+                )
                 try:
                     response = func(*args, **kwargs)
-                    if isinstance(response, Union[ModelMetaclass, BaseModel]):
+                    if isinstance(response, (ModelMetaclass, BaseModel)):
                         response = cast(BaseModel, response).model_dump()
                     else:
-                        assert(instance(response, dict)), f"response type is wrong: {type(response)}"
-                    span.set_attributes({
-                        "output.value": json.dumps(response, default=str, ensure_ascii=False),  
-                    })
+                        assert isinstance(response, dict), (
+                            f"response type is wrong: {type(response)}"
+                        )
+                    span.set_attributes(
+                        {
+                            "output.value": json.dumps(response, default=str, ensure_ascii=False),
+                        }
+                    )
                     span.set_status(StatusCode.OK)
                 except Exception as exc:
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
-                    raise exc
+                    raise
 
-            # span.end()
             return response
 
         @wrapt.decorator
         async def async_wrapper(func, instance, args, kwargs):
             name = self._get_instance_info(instance)
-            
+
             func_bound_args = _get_bound_arguments(func, *args, **kwargs)
             func_arguments = func_bound_args.kwargs
 
             with self._tracer.start_as_current_span(name=name) as span:
-                span.set_attributes({
-                    "openinference.span.kind": instance.connectable_type if hasattr(instance, "connectable_type") else "LLM",
-                    "input.value": json.dumps(func_arguments, default=str, ensure_ascii=False),
-                })
+                span.set_attributes(
+                    {
+                        "openinference.span.kind": instance.connectable_type
+                        if hasattr(instance, "connectable_type")
+                        else "LLM",
+                        "input.value": json.dumps(func_arguments, default=str, ensure_ascii=False),
+                    }
+                )
                 try:
                     response = await func(*args, **kwargs)
-                    if isinstance(response, Union[ModelMetaclass, BaseModel]):
-                        response: dict = cast(BaseModel, response).model_dump()
+                    if isinstance(response, (ModelMetaclass, BaseModel)):
+                        response = cast(BaseModel, response).model_dump()
                     else:
-                        assert(isinstance(response, dict)), "response type is wrong"
-                    span.set_attributes({
-                        "output.value": json.dumps(response, default=str, ensure_ascii=False), 
-                    })
+                        assert isinstance(response, dict), "response type is wrong"
+                    span.set_attributes(
+                        {
+                            "output.value": json.dumps(response, default=str, ensure_ascii=False),
+                        }
+                    )
                     span.set_status(StatusCode.OK)
                 except Exception as exc:
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
-                    raise exc
-            # span.end()
+                    raise
             return response
-        
+
         if iscoroutinefunction(func):
-            return async_wrapper(func)  # type: ignore
-        return wrapper(func)  # type: ignore
+            return async_wrapper(func)
+        return wrapper(func)
 
 
 class EmptyWrapDecorator:
     _tracer: Any = None
-    
+
     def __call__(self, func=None):
         if func is None:
             return partial(self.__call__)
 
         @wrapt.decorator
         def wrapper(func, instance, args, kwargs):
-            try:
-                response = func(*args, **kwargs)
-                return response
-            except Exception as exc:
-                raise exc
-        
+            return func(*args, **kwargs)
+
         @wrapt.decorator
         async def async_wrapper(func, instance, args, kwargs):
-            try:
-                response = await func(*args, **kwargs)
-                return response
-            except Exception as exc:
-                raise exc
+            return await func(*args, **kwargs)
 
         if iscoroutinefunction(func):
-            return async_wrapper(func)  # type: ignore
-        return wrapper(func)  # type: ignore
+            return async_wrapper(func)
+        return wrapper(func)
 
+
+opentelemetry_tracer: WrapDecorator | EmptyWrapDecorator
 if os.getenv("OTEL_COLLECTOR_ENDPOINT"):
     _initialize_default_remote_tracer()
     opentelemetry_tracer = WrapDecorator(tracer=_get_default_tracer())
-    OTEL_ENABLED &= True
+    # OTEL_ENABLED stays True (set in the import-try block above)
 else:
     opentelemetry_tracer = EmptyWrapDecorator()
-    OTEL_ENABLED &= False
-
-if __name__ == "__main__":
-    from abc import abstractmethod
-    import uuid
-
-    class A:
-        _id = uuid.uuid4().hex
-        
-        @opentelemetry_tracer
-        async def execute(self, *args, **kwargs):
-            response = await self._run(*args, **kwargs)
-            return response
-            # return self._run(*args, **kwargs)
-
-        @abstractmethod
-        async def _run(self, *args, **kwargs):
-            ...
-
-    class B(A):
-        async def _run(self, *args, **kwargs):
-            return {**kwargs}
-        
-    class BB(A):
-        async def _run(self, *args, **kwargs):
-            return {**kwargs} 
-
-    class C(A):
-        async def _run(self, clses, *args, **kwargs):
-            task_list = []
-            for c in clses:
-                task_list.append(
-                    create_task(c.execute(*args, **kwargs))
-                )
-            # for coro in as_completed(task_list):
-            #     _ = await coro
-            return {**kwargs}
-
-
-    asyncio_run(C().execute([B(), BB(), B()], k=1))
+    OTEL_ENABLED = False

@@ -1,17 +1,15 @@
-from . import node
-from . import pipeline
-from . import connectable
-from . import tools
-
-from .node import BaseNode, MakeNode 
+from . import connectable, node, pipeline, tools
+from .connectable import BaseConnectable
+from .node import BaseNode, MakeNode
 from .pipeline import BasePipeline
 
-
 __all__ = [
+    "BaseConnectable",
+    "BaseNode",
+    "BasePipeline",
+    "MakeNode",
+    "connectable",
     "node",
     "pipeline",
-    "connectable",
     "tools",
-    
-    "BaseNode", "MakeNode", "BasePipeline"
 ]
