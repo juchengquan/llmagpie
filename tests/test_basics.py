@@ -623,6 +623,123 @@ def test_anthropic_message_translation_round_trip():
     assert translated[2]["content"][0]["type"] == "tool_result"
 
 
+# ---------------------------------------------------------------------------
+# Structured outputs: parse + validate LLM responses against a Pydantic model.
+# ---------------------------------------------------------------------------
+
+
+def test_call_with_schema_parses_clean_json():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.structured import call_with_schema
+    from pydantic import BaseModel as _PM
+
+    class Weather(_PM):
+        city: str
+        temp_c: float
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            return LLMResponse(content='{"city": "Berlin", "temp_c": 7.5}')
+
+    node = _Stub(name="stub")
+    result = asyncio.run(
+        call_with_schema(
+            node, model="m", messages=[{"role": "user", "content": "Q"}], schema=Weather
+        )
+    )
+    assert isinstance(result, Weather)
+    assert result.city == "Berlin" and result.temp_c == 7.5
+
+
+def test_call_with_schema_strips_fences():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.structured import call_with_schema
+    from pydantic import BaseModel as _PM
+
+    class Point(_PM):
+        x: int
+        y: int
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            return LLMResponse(content='Here is your point:\n```json\n{"x": 1, "y": 2}\n```\nDone!')
+
+    node = _Stub(name="stub")
+    result = asyncio.run(
+        call_with_schema(node, model="m", messages=[{"role": "user", "content": "Q"}], schema=Point)
+    )
+    assert result.x == 1 and result.y == 2
+
+
+def test_call_with_schema_repairs_then_succeeds():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.structured import call_with_schema
+    from pydantic import BaseModel as _PM
+
+    class Item(_PM):
+        name: str
+
+    calls = {"n": 0}
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return LLMResponse(content="that is not json at all")
+            return LLMResponse(content='{"name": "ok"}')
+
+    node = _Stub(name="stub")
+    result = asyncio.run(
+        call_with_schema(
+            node,
+            model="m",
+            messages=[{"role": "user", "content": "Q"}],
+            schema=Item,
+            max_repair_attempts=2,
+        )
+    )
+    assert calls["n"] == 2  # first failed, second succeeded
+    assert result.name == "ok"
+
+
+def test_call_with_schema_raises_after_exhausted_repairs():
+    import asyncio
+
+    import pytest as _pytest
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.structured import (
+        StructuredOutputError,
+        call_with_schema,
+    )
+    from pydantic import BaseModel as _PM
+
+    class Item(_PM):
+        name: str
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            return LLMResponse(content="never valid json")
+
+    node = _Stub(name="stub")
+    with _pytest.raises(StructuredOutputError) as ei:
+        asyncio.run(
+            call_with_schema(
+                node,
+                model="m",
+                messages=[{"role": "user", "content": "Q"}],
+                schema=Item,
+                max_repair_attempts=1,
+            )
+        )
+    assert ei.value.last_content == "never valid json"
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
