@@ -44,7 +44,7 @@ def create_schema_from_types(name: str, types: dict) -> type[BaseModel]:
         p_field = Field(default=None, description=p_description)
 
         fields[p_name] = (p_type, p_field)
-    return create_model(name + "_Output", __config__=_SCHEMA_CONFIG, **fields)  # type: ignore
+    return create_model(name + "_Output", __config__=_SCHEMA_CONFIG, **fields)
 
 
 def create_schema_from_function(
@@ -96,4 +96,4 @@ def create_schema_from_function(
 
         fields[p_name] = (p_type, p_field)
 
-    return create_model(function_name, __config__=_SCHEMA_CONFIG, **fields)  # type: ignore
+    return create_model(function_name, __config__=_SCHEMA_CONFIG, **fields)

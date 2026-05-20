@@ -125,12 +125,5 @@ class ChromaDBStore:
             )
         elif self.mode == "client":
             raise ValueError("Purge is not allowed in remote mode.")
-            # self.client = HttpClient(
-            #     host=host,
-            #     port=port,
-            #     settings=Settings(
-            #         anonymized_telemetry=False,
-            #         allow_reset=True),
-            # )
         else:
-            raise ValueError
+            raise ValueError(f"Unknown mode: {self.mode!r}")

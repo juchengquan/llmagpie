@@ -4,7 +4,7 @@ from . import base, core, experimental
 from .base import BaseNode, BasePipeline, MakeNode
 
 try:
-    __version__ = _metadata.version(__package__)  # type: ignore
+    __version__ = _metadata.version(__package__)
 except _metadata.PackageNotFoundError:
     # Case where package metadata is not available.
     __version__ = ""

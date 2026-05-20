@@ -37,7 +37,7 @@ class MakeNode:
 
             @wraps(func_callable)
             async def _wrapper(*args, **kwargs):
-                inputs = input_model(**kwargs)  # type: ignore
+                inputs = input_model(**kwargs)
                 res = func_callable(*args, **inputs.__dict__)
                 if isinstance(res, Awaitable):
                     res = await res

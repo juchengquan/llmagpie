@@ -12,16 +12,17 @@ class CustomFormatter(logging.Formatter):
     Class to format log record timestamp to Singapore time and utc format.
     """
 
-    def converter(self, timestamp: int):
+    def converter(self, timestamp: float | None) -> datetime.datetime:  # type: ignore[override]
         """Method to convert epoch time to Singapore timezone.
 
         Args:
-            timestamp (int): epoch time.
+            timestamp (float | None): epoch time; falls back to "now" when None
+                (matches stdlib `time.localtime(None)` behavior).
 
         Returns:
             datetime: datetime formatted to Singapore timezone.
         """
-        dt = datetime.datetime.fromtimestamp(timestamp, tz=pytz.UTC)
+        dt = datetime.datetime.fromtimestamp(timestamp or 0.0, tz=pytz.UTC)
         return dt.astimezone(pytz.timezone("Singapore"))
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None):

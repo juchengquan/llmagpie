@@ -16,7 +16,9 @@ def get_apscheduler(session_timeout: int = 600):
             _q = sql_session.query(SessionBase)
             for session in _q.all():
                 timestamp_now = datetime.now().timestamp()
-                if timestamp_now - session.time_started > session_timeout:  # in seconds TODO
+                if (
+                    timestamp_now - session.time_started > session_timeout
+                ):  # session_timeout is in seconds
                     _q.filter(SessionBase.id == session.id).delete()
                     # logger.info(f'Deleting record: {session.id}')
                     sql_session.commit()

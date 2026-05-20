@@ -2,7 +2,7 @@ from ._wrapper import (
     OTEL_ENABLED,
     context,
     opentelemetry_tracer,
-    trace,  # type: ignore
+    trace,
 )
 
 __all__ = ["OTEL_ENABLED", "context", "opentelemetry_tracer", "trace"]

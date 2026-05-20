@@ -1,16 +1,8 @@
 import json
 import os
 import warnings
-from asyncio import (
-    create_task,
-)
-from asyncio import (
-    run as asyncio_run,
-)
 from collections.abc import Callable
 from functools import partial
-
-#
 from inspect import BoundArguments, Parameter, iscoroutinefunction, signature
 
 # typing
@@ -20,6 +12,7 @@ import wrapt
 from pydantic import BaseModel
 from pydantic._internal._model_construction import ModelMetaclass
 
+OTEL_ENABLED: bool
 try:
     from opentelemetry import context, trace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -28,11 +21,12 @@ try:
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.trace.status import Status, StatusCode
 
-    OTEL_ENABLED: bool = True
+    OTEL_ENABLED = True
 except ImportError:
     warnings.warn("opentelemetry-python is not installed", stacklevel=2)
-    OTEL_ENABLED: bool = False
-    trace, context = None, None
+    OTEL_ENABLED = False
+    trace = None  # type: ignore[assignment]
+    context = None  # type: ignore[assignment]
 
 
 _DEFAULT_TRACER_ATTRIBUTES: dict = {
@@ -180,8 +174,8 @@ class WrapDecorator:
             return response
 
         if iscoroutinefunction(func):
-            return async_wrapper(func)  # type: ignore
-        return wrapper(func)  # type: ignore
+            return async_wrapper(func)
+        return wrapper(func)
 
 
 class EmptyWrapDecorator:
@@ -200,10 +194,11 @@ class EmptyWrapDecorator:
             return await func(*args, **kwargs)
 
         if iscoroutinefunction(func):
-            return async_wrapper(func)  # type: ignore
-        return wrapper(func)  # type: ignore
+            return async_wrapper(func)
+        return wrapper(func)
 
 
+opentelemetry_tracer: WrapDecorator | EmptyWrapDecorator
 if os.getenv("OTEL_COLLECTOR_ENDPOINT"):
     _initialize_default_remote_tracer()
     opentelemetry_tracer = WrapDecorator(tracer=_get_default_tracer())
@@ -211,38 +206,3 @@ if os.getenv("OTEL_COLLECTOR_ENDPOINT"):
 else:
     opentelemetry_tracer = EmptyWrapDecorator()
     OTEL_ENABLED = False
-
-if __name__ == "__main__":
-    import uuid
-    from abc import abstractmethod
-
-    class A:
-        _id = uuid.uuid4().hex
-
-        @opentelemetry_tracer
-        async def execute(self, *args, **kwargs):
-            response = await self._run(*args, **kwargs)
-            return response
-            # return self._run(*args, **kwargs)
-
-        @abstractmethod
-        async def _run(self, *args, **kwargs): ...
-
-    class B(A):
-        async def _run(self, *args, **kwargs):
-            return {**kwargs}
-
-    class BB(A):
-        async def _run(self, *args, **kwargs):
-            return {**kwargs}
-
-    class C(A):
-        async def _run(self, clses, *args, **kwargs):
-            task_list = []
-            for c in clses:
-                task_list.append(create_task(c.execute(*args, **kwargs)))
-            # for coro in as_completed(task_list):
-            #     _ = await coro
-            return {**kwargs}
-
-    asyncio_run(C().execute([B(), BB(), B()], k=1))

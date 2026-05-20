@@ -21,7 +21,7 @@ from llmagpie.core.opentelemetry import (
     OTEL_ENABLED,
     context,
     opentelemetry_tracer,
-    trace,  # type: ignore
+    trace,
 )
 
 from ._aux import decompose_pipeline, make_as_task
@@ -47,7 +47,6 @@ class _BaseTypePipeline(BaseConnectable):
         self.add_nodes(self.nodes)
 
     def compile(self, *args, **kwargs) -> Self:
-        # CQJU FIXME 1009
         self._validate()
         self.graph.validate()
 
@@ -81,15 +80,14 @@ class _BaseTypePipeline(BaseConnectable):
             }
             _dt_output.update(node_obj.func_schema.external.output.all)
 
-        self.func_schema = FunctionSchema(
-            **{
+        self.func_schema = FunctionSchema.model_validate(
+            {
                 "internal": {
                     "input": {
                         "required": _dt_input_required,
                         "all": _dt_input,
                     },
                     "output": {
-                        # "required": [],
                         "all": _dt_output,
                     },
                 },
@@ -232,7 +230,7 @@ class _BaseTypePipeline(BaseConnectable):
 
                 # TODO: validate at compile() that input parameter names are unique
                 # across head nodes; the current `{prefix}.{key}` split below assumes it.
-                _inputs = {
+                _inputs: dict | None = {
                     ".".join(k.split(".")[1:]): v
                     for k, v in inputs.items()
                     if ".".join(k.split(".")[1:]) in _child.func_schema.internal.input.all

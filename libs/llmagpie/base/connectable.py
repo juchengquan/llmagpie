@@ -8,7 +8,7 @@ from logging import Logger
 
 # typing
 from typing import (
-    cast,
+    NoReturn,
     final,
 )
 
@@ -202,9 +202,12 @@ class BaseConnectable(BaseStateStore):
     async def async_event_on_execution(
         self, inputs: dict | None, session_id: str, **kwargs
     ) -> AsyncGenerator:
+        # The `yield` (unreachable) tells Python and mypy that this method is
+        # an async generator, matching the signature of subclasses.
         raise NotImplementedError
+        yield
 
-    def _error_callback(self, session_id: str, exc: Exception):
+    def _error_callback(self, session_id: str, exc: Exception) -> NoReturn:
         self.clean_states(session_id)
         self._running_status = NodeRunningStatus.ERROR
         self.logger.error(f"Error on {self.name} -> {exc}")
@@ -290,9 +293,8 @@ class BaseConnectable(BaseStateStore):
                 )
             _inputs = self.precheck(session_id, inputs)
 
-            async_result = cast(
-                AsyncGenerator,
-                self.async_event_on_execution(inputs=_inputs, session_id=session_id, **kwargs),
+            async_result = self.async_event_on_execution(
+                inputs=_inputs, session_id=session_id, **kwargs
             )
         except Exception as exc:
             self._error_callback(session_id, exc)
@@ -329,13 +331,10 @@ class BaseConnectable(BaseStateStore):
                     "first using `pipe.compile()`."
                 )
             _inputs = self.precheck(session_id, inputs)
-            inner = cast(
-                AsyncGenerator,
-                self.async_event_on_execution(
-                    inputs=_inputs,
-                    session_id=session_id,
-                    **kwargs,
-                ),
+            inner = self.async_event_on_execution(
+                inputs=_inputs,
+                session_id=session_id,
+                **kwargs,
             )
         except Exception as exc:
             # `_error_callback` raises; `clean_states` runs inside it.

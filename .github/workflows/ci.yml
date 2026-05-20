@@ -34,6 +34,24 @@ jobs:
       - name: ruff format --check
         run: uv run ruff format --check libs/ tests/
 
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync (with dev + extras)
+        run: uv sync --group dev --extra opentelemetry --extra openai
+
+      - name: mypy
+        run: uv run mypy libs/llmagpie
+
   test:
     name: tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -57,8 +75,15 @@ jobs:
       - name: Sync (with dev + extras)
         run: uv sync --python ${{ matrix.python-version }} --group dev --extra opentelemetry --extra openai
 
-      - name: Run tests
-        run: uv run --python ${{ matrix.python-version }} pytest -q
+      - name: Run tests with coverage
+        run: uv run --python ${{ matrix.python-version }} pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage artifact
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
 
       - name: Build sdist + wheel
         if: matrix.python-version == '3.12'

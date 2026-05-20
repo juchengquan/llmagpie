@@ -51,9 +51,11 @@ class ToolsNode(BaseNode):
 
                     except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
                         self.logger.warning(f"Tool dispatch failed for {function_args!r}: {exc}")
-                        future = executor.submit(
-                            lambda exc=exc: Exception(f"Function argument is wrong: {exc}")
-                        )
+
+                        def _failed(exc: Exception = exc) -> Exception:
+                            return Exception(f"Function argument is wrong: {exc}")
+
+                        future = executor.submit(_failed)
                     ele["_f"] = future
 
             _result = [

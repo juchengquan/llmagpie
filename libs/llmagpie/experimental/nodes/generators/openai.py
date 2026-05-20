@@ -72,7 +72,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         )
         if self.tools_node:
             call_kwargs.update(dict(tools=self.tools_node._generate_openai_schema()))
-        response = self.client.chat.completions.create(**call_kwargs)  # type: ignore
+        response = self.client.chat.completions.create(**call_kwargs)
         post_response = _get_llm_answer(response)
 
         if self.tools_node:
@@ -304,7 +304,7 @@ def _get_llm_answer(response):
 
     tool_list = []
     for item in _tool_calls:
-        _t = item.dict()
+        _t = item.model_dump()
         # _t["index"] = i
         tool_list.append(_t)
 

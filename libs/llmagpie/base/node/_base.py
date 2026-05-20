@@ -153,8 +153,8 @@ class BaseNode(BaseConnectable):
 
     @model_validator(mode="after")
     def _contruct_schemas(self):
-        self.func_schema = FunctionSchema(
-            **{
+        self.func_schema = FunctionSchema.model_validate(
+            {
                 "internal": {
                     "input": {
                         "required": self.input_model_schema.model_json_schema()["required"],
@@ -214,15 +214,19 @@ class BaseNode(BaseConnectable):
         return _output_values
 
     async def async_event_on_execution(
-        self, inputs: dict, session_id: str, **kwargs
+        self, inputs: dict | None, session_id: str, **kwargs
     ) -> AsyncGenerator:
         try:
             self.logger.debug(f"EXECUTE -> {self.name}")
             self._running_status = NodeRunningStatus.RUNNING
-            _output_values: dict | Generator | AsyncGenerator = await self._async_execute(**inputs)
-        except CancelledError as exc:
-            exc = Exception(f"{self.name}: The task has been cancelled: {exc}")
-            self._error_callback(session_id, exc)
+            _output_values: dict | Generator | AsyncGenerator = await self._async_execute(
+                **(inputs or {})
+            )
+        except CancelledError as cancel_exc:
+            self._error_callback(
+                session_id,
+                Exception(f"{self.name}: The task has been cancelled: {cancel_exc}"),
+            )
         except Exception as exc:
             self._error_callback(session_id, exc)
 
