@@ -15,6 +15,7 @@ class ToolsNode(BaseNode):
         
     tools: List[BaseNode]
     tools_with_mapping: Dict[str, BaseNode]
+    max_workers: int = 4
 
     def __init__(self, *args, **kwargs):
         tools_with_mapping = {
@@ -37,7 +38,7 @@ class ToolsNode(BaseNode):
         return self.__repr__()
 
     async def fire(self, tool_calls_list: List[Dict]):
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for _i, ele in enumerate(tool_calls_list):
                 if ele.get("function", None):
                     function_args = ele["function"]

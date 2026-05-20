@@ -149,8 +149,8 @@ class _BaseTypePipeline(BaseConnectable):
             i_key_schema = i_schema[i_key].get("type", "object")
             assert i_key_schema == o_key_schema, f'The schema does not align: input: {i_key}->{i_key_schema}; output: {o_key}->{o_key_schema}'
             # check keys in schema
-            assert i_key in i_schema, AssertionError(f'{i_key} not in {i_schema}')
-            assert o_key in o_schema, AssertionError(f'{o_key} not in {o_schema}')
+            assert i_key in i_schema, f'{i_key} not in {i_schema}'
+            assert o_key in o_schema, f'{o_key} not in {o_schema}'
 
             # bind all output keys to input
             dest_connectable._input_keys_nodes_map[i_key] = dest_connectable._input_keys_nodes_map.get(i_key, [])
@@ -216,7 +216,8 @@ class _BaseTypePipeline(BaseConnectable):
                         # self.logger.warning(f"{_child} is the head node of the session.")
                         self._error_callback(session_id, exc)
 
-                # TODO: make sure that input name in all nodes are different
+                # TODO: validate at compile() that input parameter names are unique
+                # across head nodes; the current `{prefix}.{key}` split below assumes it.
                 _inputs = {
                     ".".join(k.split(".")[1:]): v for k, v in inputs.items() \
                         if ".".join(k.split(".")[1:]) in _child.func_schema.internal.input.all

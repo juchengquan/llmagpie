@@ -1,9 +1,24 @@
 [tool.poetry]
 name = "llmagpie"
 version = "0.0.0"
-description = ""
+description = "A lightweight Python framework for composing LLM pipelines from nodes and DAGs."
 authors = ["blackmount8 <blackmount8@gmail.com>"]
+license = "GPL-3.0-or-later"
 readme = "README.md"
+homepage = "https://github.com/juchengquan/llmagpie"
+repository = "https://github.com/juchengquan/llmagpie"
+keywords = ["llm", "pipeline", "dag", "agent", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 packages = [
     {include="llmagpie", from="libs"}
 ]

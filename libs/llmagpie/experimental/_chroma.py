@@ -105,9 +105,11 @@ class ChromaDBStore:
         collection_name: str,
         query_embeddings: List,
         top_k: int = 10,
-        include: List[Union[Literal['documents'], Literal['embeddings'], Literal['metadatas'], Literal['distances'], Literal['uris'], Literal['data']]] = ['metadatas', 'documents', 'distances'],
+        include: Optional[List[Literal['documents', 'embeddings', 'metadatas', 'distances', 'uris', 'data']]] = None,
     ):
         """"""
+        if include is None:
+            include = ['metadatas', 'documents', 'distances']
         return self.get_collection(collection_name, create_if_not_exist=False) \
             .query(
                 query_embeddings=query_embeddings,

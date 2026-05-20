@@ -147,8 +147,8 @@ class BaseConnectable(BaseStateStore):
     # Function Schema
     
     # condition function
-    cond_func: Optional[Callable] = None
-    inputs_to_cond: Optional[Dict] = None
+    cond_func: Optional[Callable[..., bool]] = None
+    inputs_to_cond: Optional[Dict[str, str]] = None
     # LOOP
     iteration_counter: Dict = Field(default_factory=dict)
     max_iteration_limit: int = Field(default=10)
@@ -234,7 +234,7 @@ class BaseConnectable(BaseStateStore):
                     self.logger.warning(f"{self} cond_func missing inputs_to_cond. Mapping all inputs of the node.")
                     inputs_to_cond_values = inputs
                 
-                if self.cond_func(**inputs_to_cond_values) == False:
+                if not self.cond_func(**inputs_to_cond_values):
                     self.logger.warning(f"[Condition not met] NOT EXECUTED -> {self.name}")
                     return None
             

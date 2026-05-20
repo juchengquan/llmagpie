@@ -100,17 +100,14 @@ class BaseNode(BaseConnectable):
             _is_new_loop = True
             aioloop = new_event_loop()
         
-        try:
-            if _thread_mode:
-                yield from exec_generator_in_separated_thread(async_generator=async_result, loop=aioloop)
-            else:
-                yield from exec_generator_in_event_loop(async_generator=async_result, loop=aioloop)
+        if _thread_mode:
+            yield from exec_generator_in_separated_thread(async_generator=async_result, loop=aioloop)
+        else:
+            yield from exec_generator_in_event_loop(async_generator=async_result, loop=aioloop)
 
-            if _is_new_loop:
-                aioloop.close()
-        except Exception as exc:
-            raise exc
-    
+        if _is_new_loop:
+            aioloop.close()
+
     @final
     async def async_stream(self, **inputs):
         return self._async_stream(**inputs)
@@ -164,29 +161,25 @@ class BaseNode(BaseConnectable):
 
     @opentelemetry_tracer
     async def _async_execute(self, **inputs):
-        try:
-            # parameter checking
-            if set(self.func_schema.internal.input.all) != set(inputs.keys()):
-                self.logger.warning(
-                    f'{self.__class__.__name__}:{self.name}: '
-                    f'Input pamatemeters {set(inputs.keys())} does not align with the keys: '
-                    f'{set(self.func_schema.internal.input.all)} -> checking required parameters')
-                
-                assert set(self.func_schema.internal.input.required).issubset(set(inputs.keys())), \
-                    (
-                        f'{self.__class__.__name__}:{self.name}: Required input parameters missing. '
-                        f'{set(self.func_schema.internal.input.required)} does not align with the '
-                        f'input keys: {set(inputs.keys())}'
-                    )
-        except AssertionError as exc:
-            raise exc
+        # parameter checking
+        if set(self.func_schema.internal.input.all) != set(inputs.keys()):
+            self.logger.warning(
+                f'{self.__class__.__name__}:{self.name}: '
+                f'Input pamatemeters {set(inputs.keys())} does not align with the keys: '
+                f'{set(self.func_schema.internal.input.all)} -> checking required parameters')
+
+            assert set(self.func_schema.internal.input.required).issubset(set(inputs.keys())), \
+                (
+                    f'{self.__class__.__name__}:{self.name}: Required input parameters missing. '
+                    f'{set(self.func_schema.internal.input.required)} does not align with the '
+                    f'input keys: {set(inputs.keys())}'
+                )
 
         try:
-            _output_values = await self.async_call_(**inputs)
-            return _output_values
-        except (Exception, BaseException) as exc:
-            self.logger.error(f"Error: {str(exc)}")
-            raise exc
+            return await self.async_call_(**inputs)
+        except Exception as exc:
+            self.logger.error(f"Error: {exc}")
+            raise
 
     def _callback(self, session_id, _output_values):
         self.iteration_counter[session_id] = self.iteration_counter.get(session_id, 0)

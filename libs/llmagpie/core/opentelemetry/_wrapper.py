@@ -13,7 +13,7 @@ from inspect import BoundArguments, Parameter, signature, iscoroutinefunction
 
 from functools import partial
 # typing
-from typing import Union, Callable, Dict, Any, Optional, cast
+from typing import Callable, Dict, Any, Optional, cast
 from pydantic import BaseModel
 from pydantic._internal._model_construction import ModelMetaclass
 
@@ -134,9 +134,8 @@ class WrapDecorator:
                     span.set_status(StatusCode.OK)
                 except Exception as exc:
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
-                    raise exc
+                    raise
 
-            # span.end()
             return response
 
         @wrapt.decorator
@@ -163,10 +162,9 @@ class WrapDecorator:
                     span.set_status(StatusCode.OK)
                 except Exception as exc:
                     span.set_status(Status(StatusCode.ERROR, str(exc)))
-                    raise exc
-            # span.end()
+                    raise
             return response
-        
+
         if iscoroutinefunction(func):
             return async_wrapper(func)  # type: ignore
         return wrapper(func)  # type: ignore
@@ -181,19 +179,11 @@ class EmptyWrapDecorator:
 
         @wrapt.decorator
         def wrapper(func, instance, args, kwargs):
-            try:
-                response = func(*args, **kwargs)
-                return response
-            except Exception as exc:
-                raise exc
-        
+            return func(*args, **kwargs)
+
         @wrapt.decorator
         async def async_wrapper(func, instance, args, kwargs):
-            try:
-                response = await func(*args, **kwargs)
-                return response
-            except Exception as exc:
-                raise exc
+            return await func(*args, **kwargs)
 
         if iscoroutinefunction(func):
             return async_wrapper(func)  # type: ignore
