@@ -15,8 +15,6 @@ from typing import (
 
 
 class MakeNode:
-    base_node: Type[BaseNode] = BaseNode
-    
     @classmethod
     def from_class(cls, class_: Optional[Type]=None, func_name: str="", outputs: Optional[Dict]=None):
         outputs = outputs or {}

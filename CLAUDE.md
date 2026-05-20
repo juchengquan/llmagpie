@@ -1,0 +1,91 @@
+# Notes for future agents working on this repo
+
+## Layout
+
+- `libs/llmagpie/` — the package (`from="libs"` in `pyproject.toml`). When
+  running scripts directly use `PYTHONPATH=libs python ...`; pytest is
+  already configured via `[tool.pytest.ini_options]` `pythonpath`.
+- `libs/llmagpie/base/` — public-ish core. Treat as stable.
+- `libs/llmagpie/core/opentelemetry/` — optional OTEL decorator. Becomes a
+  no-op `EmptyWrapDecorator` if `OTEL_COLLECTOR_ENDPOINT` is unset or
+  `opentelemetry` is not installed.
+- `libs/llmagpie/experimental/` — not part of the public surface. Anything
+  here can change. Includes `_chroma.py`, `sqlite_db/`, `nodes/generators/`.
+- `_examples/simple_composition/` — small runnable demos. They double as
+  the integration test corpus via `tests/test_examples.py`.
+
+## The core mental model
+
+```
+BaseConnectable           pydantic BaseModel; carries per-session state dicts
+├── BaseNode              single unit of work; `async_call_` is the entry
+└── BasePipeline          a compiled DAG of connectables
+```
+
+- `BaseConnectable` owns three dicts keyed by `session_id`:
+  `input_state`, `output_state`, `output_history_state`. Almost every
+  bug in this repo's history has been about these dicts (shared across
+  sessions, not cleaned up after errors, mutated outside their owner).
+- `BasePipeline` wraps a `networkx.DiGraph` (`SingleDAG` in
+  `base/pipeline/_dag.py`). Cycle detection is intentionally disabled —
+  loop-style pipelines re-enter nodes — see the FIXME there.
+- `MakeNode.from_class` / `MakeNode.from_function` synthesize input/output
+  Pydantic schemas from a callable's signature. `from_class` rebinds the
+  target method onto the class as `async_call_`.
+- Connections use the `>>` / `<<` operators. Real usage looks like:
+  `(src_node >> "out_key") >> ("in_key" >> dest_node)`. The README's
+  quick start has a working minimal example.
+- Pipelines must be `.compile()`d before invocation. Compilation freezes
+  the input/output schema (`func_schema.external`) and runs DAG
+  validation.
+
+## Things that have bitten people before
+
+- **Private attrs vs class attrs.** In Pydantic v2, a leading-underscore
+  annotation like `_foo: Set = set()` is NOT a model field. It becomes a
+  plain class attribute shared by every instance. Use
+  `PrivateAttr(default_factory=...)`. `connectable.py` has the canonical
+  examples (`_input_keys_binded`, `_input_keys_nodes_map`, `_id`).
+- **Mutable default args.** Several pydantic field declarations and plain
+  functions had `= []` / `= {}` defaults. Use `Field(default_factory=...)`
+  for pydantic, `Optional[...] = None` plus an inside-the-body init for
+  plain functions.
+- **`isinstance` vs `Union`.** `isinstance(x, Union[A, B])` is not valid;
+  use a tuple `isinstance(x, (A, B))`.
+- **OTEL context detach.** `pipeline/_base.py` has a FIXME about
+  `context.detach(token)` raising "ContextVar token was created in a
+  different Context" when attach happens inside an async generator. The
+  detach is currently commented out; re-enabling requires releasing the
+  token in the same context where it was attached (likely via
+  `try/finally` around the yields or by switching to span
+  context-management).
+- **Session isolation.** Per-instance scalar fields like
+  `OpenAIChatCompletionWithToolCall.num_tool_calls` leak across
+  invocations if not reset. The current fix resets at the top of
+  `async_call`; a fuller solution would key the counter by `session_id`.
+- **Don't dedupe `(BaseException, Exception)` catches** without checking —
+  they're scattered through `connectable.py`, `node/_base.py`,
+  `pipeline/_base.py`, and the utils. They look redundant (`Exception`
+  is a subclass of `BaseException`) but the tuple form deliberately
+  catches `KeyboardInterrupt` / `SystemExit` too. Leave them unless
+  you're sure the call site shouldn't catch those.
+
+## Tests
+
+```bash
+pytest                    # runs unit + example smoke tests (~20s)
+pytest tests/test_basics.py   # just the fast in-process units
+```
+
+When fixing a bug worth caring about, add a unit test in
+`tests/test_basics.py` first — the example suite catches regressions in
+graph behavior but is too coarse for narrow correctness checks.
+
+## Don't change in passing
+
+- The `_examples/` leading underscore. It looks unusual for an examples
+  directory but the test suite globs it by exact path.
+- The `pyproject_setup_legacy.toml` file. It's a deliberate stash of an
+  older packaging shape; deleting it without checking might break someone
+  else's setup pipeline.
+- The `(BaseException, Exception)` patterns (see above).

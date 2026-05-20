@@ -244,7 +244,7 @@ class BaseConnectable(BaseStateStore):
             ):  
                 self.logger.warning(
                     f'{self.__class__.__name__}:{self.name}: '
-                    f'Input pamatemeters {set(inputs.keys())} does not align with the keys: {set(self.func_schema.internal.input.all)}'
+                    f'Input parameters {set(inputs.keys())} does not align with the keys: {set(self.func_schema.internal.input.all)}'
                     f', or Required input parameters {set(self.func_schema.internal.input.required)} '
                     f'does not align with the input keys: {set(inputs.keys())}')
                 

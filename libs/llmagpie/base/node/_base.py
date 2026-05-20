@@ -165,7 +165,7 @@ class BaseNode(BaseConnectable):
         if set(self.func_schema.internal.input.all) != set(inputs.keys()):
             self.logger.warning(
                 f'{self.__class__.__name__}:{self.name}: '
-                f'Input pamatemeters {set(inputs.keys())} does not align with the keys: '
+                f'Input parameters {set(inputs.keys())} does not align with the keys: '
                 f'{set(self.func_schema.internal.input.all)} -> checking required parameters')
 
             assert set(self.func_schema.internal.input.required).issubset(set(inputs.keys())), \

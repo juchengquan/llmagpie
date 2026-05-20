@@ -156,6 +156,10 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             self.logger.warning("Tools is not binded but `direct_tool_outputs` is set True.... omit")
             direct_tool_outputs = False
 
+        # Reset per-invocation counter so the limit applies within a single
+        # `async_call`, not cumulatively across invocations of the same node.
+        self.num_tool_calls = 0
+
         post_response = await self._single_call(model, messages)
         if direct_tool_outputs:
             yield post_response
@@ -163,7 +167,6 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             # VLLM: only one tool call for each time
             # compose new call to LLM
             while self.num_tool_calls < self.max_num_tool_calls and post_response["tool_calls"]:
-                print("0")
                 yield post_response
                 self._add_messages_from_tools(
                     post_response, messages
@@ -282,7 +285,7 @@ def get_llm_answer_stream(response):
             tool_list.append(func_def)
 
     res["tool_calls"] = tool_list
-    res["finish_reson"] = finish_reason
+    res["finish_reason"] = finish_reason
 
     return res
 

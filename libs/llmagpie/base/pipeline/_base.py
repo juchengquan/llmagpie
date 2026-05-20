@@ -480,4 +480,4 @@ class BasePipeline(_BaseTypePipeline):
         
     def _validate_root_nodes(self):
         """"""
-        assert len(self.graph.head_nodes) >= 1, f"Only one root is not allowed in {self.__class__.__name__}!"
+        assert len(self.graph.head_nodes) >= 1, f"At least one root node is required in {self.__class__.__name__}."
