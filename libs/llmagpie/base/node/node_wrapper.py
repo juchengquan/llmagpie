@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from functools import partial, wraps
 from inspect import getfullargspec

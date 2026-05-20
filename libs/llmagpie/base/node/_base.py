@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import time
 from asyncio import CancelledError, get_running_loop, new_event_loop
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator

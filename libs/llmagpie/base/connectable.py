@@ -1,3 +1,6 @@
+# Required: `BaseConnectDisposable` (defined below) references
+# `BaseConnectable` (defined further below) and `BaseConnectable.pipeline`
+# is self-referential. Removing this triggers `NameError` at import.
 from __future__ import annotations
 
 import uuid
