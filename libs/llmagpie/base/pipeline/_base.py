@@ -156,7 +156,7 @@ class _BaseTypePipeline(BaseConnectable):
             dest_connectable._input_keys_nodes_map[i_key] = dest_connectable._input_keys_nodes_map.get(i_key, [])
             dest_connectable._input_keys_nodes_map[i_key].append(src_connectable._id)
 
-            dest_connectable._input_keys_binded.add(i_key)
+            dest_connectable._input_keys_bound.add(i_key)
             
             _in_keys.append(i_key)
             _out_keys.append(o_key)

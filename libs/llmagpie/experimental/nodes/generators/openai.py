@@ -153,7 +153,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
                 - tool_calls (List[Dict]): A list of tool calls, each containing the tool's ID, type, and function details.
         """
         if direct_tool_outputs and not self.tools_node:
-            self.logger.warning("Tools is not binded but `direct_tool_outputs` is set True.... omit")
+            self.logger.warning("Tools are not bound but `direct_tool_outputs` is set True.... omit")
             direct_tool_outputs = False
 
         # Reset per-invocation counter so the limit applies within a single

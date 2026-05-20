@@ -34,20 +34,17 @@ class InternalDictState(Dict, BaseState):
 
 
 # Function Schema DataClass
-class _InterChangableInferface(BaseModel):
-    required: List = []
-    all: Dict = {}
-    
+class _InterchangeableInterface(BaseModel):
+    required: List = Field(default_factory=list)
+    all: Dict = Field(default_factory=dict)
+
 class _FunctionSchema(BaseModel):
-    input: _InterChangableInferface = Field(default_factory=_InterChangableInferface)
-    output: _InterChangableInferface = Field(default_factory=_InterChangableInferface)
-    
+    input: _InterchangeableInterface = Field(default_factory=_InterchangeableInterface)
+    output: _InterchangeableInterface = Field(default_factory=_InterchangeableInterface)
+
 class FunctionSchema(BaseModel):
     internal: _FunctionSchema = Field(default_factory=_FunctionSchema)
     external: _FunctionSchema = Field(default_factory=_FunctionSchema)
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
 
 class BaseStateStore(BaseModel):
@@ -60,7 +57,9 @@ class BaseStateStore(BaseModel):
     output_state: InternalDictState = Field(default_factory=InternalDictState, description="Output object store that saves the output history of all execution of nodes.")
     
     def clean_user_defined_states(self):
-        for name, field in self.model_fields.items():
+        # Access via the class (not the instance) to avoid the
+        # PydanticDeprecatedSince211 warning on `self.model_fields`.
+        for name in type(self).model_fields:
             obj = getattr(self, name)
             if isinstance(obj, BaseState):
                 obj.clear()
@@ -69,13 +68,13 @@ class BaseConnectDisposable(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     connectable: BaseConnectable
-    in_keys: List[str] = []
-    out_keys: List[str] = []
+    in_keys: List[str] = Field(default_factory=list)
+    out_keys: List[str] = Field(default_factory=list)
 
     logger: Logger
 
     def __init__(self, *args, **kwargs):
-        logger = get_or_create_logger(self.__class__.__name__)
+        logger = kwargs.pop("logger", None) or get_or_create_logger(self.__class__.__name__)
         super().__init__(logger=logger, *args, **kwargs)
 
     def __lshift__(self, connect_disposable: "BaseConnectDisposable"):
@@ -131,8 +130,8 @@ class BaseConnectable(BaseStateStore):
     # typing might be wrong 
     pipeline: Optional[BaseConnectable] = Field(default=None)
         
-    # input binded keys
-    _input_keys_binded: Set[str] = PrivateAttr(default_factory=set)
+    # input bound keys
+    _input_keys_bound: Set[str] = PrivateAttr(default_factory=set)
     # input keys of nodes map
     _input_keys_nodes_map: Dict[str, List[str]] = PrivateAttr(default_factory=dict)
 
@@ -147,10 +146,9 @@ class BaseConnectable(BaseStateStore):
     iteration_counter: Dict = Field(default_factory=dict)
     max_iteration_limit: int = Field(default=10)
     count_visited: int = 0
-    _max_count_visited = 10
 
     def __init__(self, *args, **kwargs):
-        kwargs["logger"] = get_or_create_logger(self.__class__.__name__)
+        kwargs.setdefault("logger", get_or_create_logger(self.__class__.__name__))
         super().__init__(*args, **kwargs)
 
     def __lshift__(self, keys: Union[str, List[str]]):
@@ -303,28 +301,34 @@ class BaseConnectable(BaseStateStore):
         session_id: Optional[str] = None,
         **kwargs
     ) -> AsyncGenerator:
+        """Awaitable that returns an async generator. The returned generator
+        owns the per-session cleanup: state for `session_id` is removed when
+        iteration finishes (either StopAsyncIteration or exception)."""
         session_id = uuid.uuid4().hex if not session_id else session_id
         try:
             if self.connectable_type == ConnectableType.PIPELINE:
-                assert getattr(self, "is_compiled"), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."    
+                assert getattr(self, "is_compiled"), f"Pipeline {self.name} is not compiled yet; please compile it first using `pipe.compile()`."
             _inputs = self.precheck(session_id, inputs)
-            
-            async_result = cast(AsyncGenerator,
+            inner = cast(
+                AsyncGenerator,
                 self.async_event_on_execution(
                     inputs=_inputs,
                     session_id=session_id,
-                    **kwargs
-                )
+                    **kwargs,
+                ),
             )
         except (BaseException, Exception) as exc:
+            # `_error_callback` raises; `clean_states` runs inside it.
             self._error_callback(session_id, exc)
-            
-        try:
-            return async_result
-        except (BaseException, Exception) as exc:
-            self._error_callback(session_id, exc)
-        finally:
-            self.clean_states(session_id)
+
+        async def _wrapped() -> AsyncGenerator:
+            try:
+                async for state in inner:
+                    yield state
+            finally:
+                self.clean_states(session_id)
+
+        return _wrapped()
 
     def _get_from_local_store(self, session_id: str) -> Dict:
         dt_local_store = {}

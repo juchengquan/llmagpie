@@ -31,7 +31,7 @@ class BaseNode(BaseConnectable):
         pass
 
     connectable_type: ConnectableType = ConnectableType.BASENODE
-    is_binded: bool = False
+    is_bound: bool = False
     
     async_call_: ClassVar[Callable]
     input_model_schema: ClassVar[BaseModel] = Field(default_factory=_ArgsSchemaPlaceholder)
@@ -49,10 +49,7 @@ class BaseNode(BaseConnectable):
             }
         }
         return tool_schema
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-            
+
     @final
     async def _async_stream(self, **inputs):
         res = self.async_call_(**inputs)
@@ -133,13 +130,13 @@ class BaseNode(BaseConnectable):
             AssertionError: If the node has already been bound to another pipeline.
             AssertionError: If the required input parameters are not fully bound or if unknown keys are bound.
         """
-        assert not self.is_binded, f"The node has been binded to another pipeline: {self.pipeline}"
-        self.is_binded = True
-        
+        assert not self.is_bound, f"The node has already been bound to another pipeline: {self.pipeline}"
+        self.is_bound = True
+
         # Check input bound status
         if not self.is_start:
-            assert set(self.func_schema.internal.input.required).issubset(set(self._input_keys_binded)) \
-                and set(self._input_keys_binded).issubset(set(self.func_schema.internal.input.all)), \
+            assert set(self.func_schema.internal.input.required).issubset(set(self._input_keys_bound)) \
+                and set(self._input_keys_bound).issubset(set(self.func_schema.internal.input.all)), \
                 "Required inputs parameters are not fully bound. Or unknown keys bound."
     
     @model_validator(mode="after")
