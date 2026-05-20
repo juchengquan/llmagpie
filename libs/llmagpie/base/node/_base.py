@@ -69,7 +69,10 @@ class BaseNode(BaseConnectable):
         elif isinstance(res, Dict):
             yield res
         else:
-            raise TypeError("WTF")       
+            raise TypeError(
+                f"{self.__class__.__name__}.async_call_ must return a dict, Generator, "
+                f"AsyncGenerator, or an Awaitable of one of those; got {type(res).__name__}."
+            )
     
     @final
     def run(self, **inputs):

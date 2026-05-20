@@ -137,10 +137,10 @@ class BaseConnectable(BaseStateStore):
     # typing might be wrong 
     pipeline: Optional[BaseConnectable] = Field(default=None)
         
-    _input_keys_binded: Set[str] = set()
     # input binded keys
-    _input_keys_nodes_map: Dict[str, List[str]] = {}
+    _input_keys_binded: Set[str] = PrivateAttr(default_factory=set)
     # input keys of nodes map
+    _input_keys_nodes_map: Dict[str, List[str]] = PrivateAttr(default_factory=dict)
 
     # PRIVATE
     func_schema: FunctionSchema = Field(default_factory=FunctionSchema)
@@ -201,24 +201,21 @@ class BaseConnectable(BaseStateStore):
 
     def clean_states(self, session_id: str):
         """"""
-        try:
-            if hasattr(self, "graph"):
-                graph = getattr(self, "graph")
-                for _id in graph.nodes:
-                    _node = graph.nodes[_id]["_obj"]
-                    _node.clean_states(session_id)
-            
-            self.clean_user_defined_states()
-            # clean self
-            for object_store_name in ["input_state", "output_state", "output_history_state"]:
-                if hasattr(self, object_store_name):
-                    self.logger.debug(f"{self.name} - {object_store_name}: BEFORE")
-                    self.logger.debug(getattr(self, object_store_name))
-                    getattr(self, object_store_name).pop(session_id, None)
-                    self.logger.debug(f"{self.name} - {object_store_name}: AFTER")
-                    self.logger.debug(getattr(self, object_store_name))
-        except Exception as exc:
-            raise exc
+        if hasattr(self, "graph"):
+            graph = getattr(self, "graph")
+            for _id in graph.nodes:
+                _node = graph.nodes[_id]["_obj"]
+                _node.clean_states(session_id)
+
+        self.clean_user_defined_states()
+        # clean self
+        for object_store_name in ["input_state", "output_state", "output_history_state"]:
+            if hasattr(self, object_store_name):
+                self.logger.debug(f"{self.name} - {object_store_name}: BEFORE")
+                self.logger.debug(getattr(self, object_store_name))
+                getattr(self, object_store_name).pop(session_id, None)
+                self.logger.debug(f"{self.name} - {object_store_name}: AFTER")
+                self.logger.debug(getattr(self, object_store_name))
 
     def precheck(
         self,

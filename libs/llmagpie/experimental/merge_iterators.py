@@ -1,7 +1,9 @@
+import logging
 from asyncio import FIRST_COMPLETED, Task, create_task, wait
 from typing import AsyncIterable, AsyncIterator, Collection, TypeVar
 
 _T = TypeVar("_T")
+_logger = logging.getLogger(__name__)
 
 
 async def _await_next(iterator: AsyncIterator[_T]) -> _T:
@@ -22,7 +24,9 @@ async def merge_iterators(iterators: Collection[AsyncIterator[_T]]) -> AsyncIter
                 yield task.result()
             except StopAsyncIteration:
                 del next_tasks[iterator]
-            except Exception:
-                pass
+            except Exception as exc:
+                # TODO: surface per-iterator errors to the caller instead of swallowing.
+                _logger.warning("merge_iterators: iterator raised %r; dropping it.", exc)
+                del next_tasks[iterator]
             else:
                 next_tasks[iterator] = _as_task(iterator)

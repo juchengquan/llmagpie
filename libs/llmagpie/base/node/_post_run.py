@@ -32,5 +32,5 @@ def post_run(res: Union[Tuple, Dict, Generator, AsyncGenerator], model: type[Bas
         return model(**{k:v for k, v in zip(model.model_fields.keys(), res)} if res else {}).model_dump(exclude_none=True)
     try:
         return model(**{k:v for k, v in zip(model.model_fields.keys(), [res])} if res else {}).model_dump(exclude_none=True)
-    except:
-        raise TypeError("Result type is wrong.")
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"Result type is wrong: {type(res).__name__}.") from exc

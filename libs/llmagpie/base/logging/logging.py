@@ -4,7 +4,7 @@ import logging
 import datetime
 import pathlib
 from logging.handlers import TimedRotatingFileHandler
-from typing import Optional, cast
+from typing import List, Optional, cast
 
 
 class CustomFormatter(logging.Formatter):
@@ -44,7 +44,7 @@ class CustomFormatter(logging.Formatter):
         return formatted_timestamp
 
 
-def DefaultLogger(name: str, handlers: list = [], *args, **kwargs):
+def DefaultLogger(name: str, handlers: Optional[List[logging.Handler]] = None, *args, **kwargs):
     """
     Function to initialize CustomLogger object. Calls logging.getLogger underneath the hood.
 
@@ -59,7 +59,7 @@ def DefaultLogger(name: str, handlers: list = [], *args, **kwargs):
     logger.setLevel(logging.INFO)
 
     if not logger.hasHandlers():
-        for handler in handlers:
+        for handler in (handlers or []):
             logger.addHandler(handler)
     if not flag:
         logger.debug(f"Logger initialized: {name}")

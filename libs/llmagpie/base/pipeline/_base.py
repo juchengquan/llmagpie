@@ -40,7 +40,7 @@ class _BaseTypePipeline(BaseConnectable):
     for handling errors and cancelling the pipeline.
     """
     connectable_type: ConnectableType = ConnectableType.PIPELINE
-    nodes: List[BaseConnectable] = []
+    nodes: List[BaseConnectable] = Field(default_factory=list)
     graph: SingleDAG = Field(default_factory=lambda: SingleDAG(name=uuid.uuid4().hex))
     
     is_compiled: bool = False
@@ -297,7 +297,7 @@ class _BaseTypePipeline(BaseConnectable):
                     else:
                         self.logger.debug(f"{parent.name} -> emitted to -> {child.name} but NOT executed")
                 else:
-                    self.logger.debug(f"{parent.name} -> NOT emitted to -> {child.name}: Input emprty")
+                    self.logger.debug(f"{parent.name} -> NOT emitted to -> {child.name}: Input empty")
             return iterator_dt
 
         except CancelledError as exc:
@@ -450,7 +450,11 @@ class _BaseTypePipeline(BaseConnectable):
                     span.end()
 
                 # Don't forget to detach or parent will remain the parent above this call stack
-                # context.detach(token)  # ERROR ContextVar
+                # FIXME: context.detach(token) raises "ContextVar token was created in a different Context"
+                # when the attach happens inside an async generator. Re-enable once the token is
+                # released in the same context it was created in (likely via a try/finally around
+                # the yields, or by switching to span context-management instead of attach/detach).
+                # context.detach(token)
                 
             self._running_status = NodeRunningStatus.INACTIVE
         except (BaseException, Exception) as exc:

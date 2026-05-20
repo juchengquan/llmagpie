@@ -34,12 +34,17 @@ except ImportError:
     trace, context = None, None
 
 
+_DEFAULT_TRACER_ATTRIBUTES: Dict = {
+    "openinference.project.name": "OpenTelemeTry Project Name",  # Optional
+    "service.name": "OpenTelemeTry Project Name",
+}
+
+
 def _initialize_default_remote_tracer(
-    attributes: Dict = {
-            "openinference.project.name": "OpenTelemeTry Project Name",  # Optional
-            "service.name": "OpenTelemeTry Project Name"
-        }
+    attributes: Optional[Dict] = None,
     ):
+    if attributes is None:
+        attributes = dict(_DEFAULT_TRACER_ATTRIBUTES)
     # Project based resource
     resource = Resource.create(
         attributes=attributes
@@ -119,10 +124,10 @@ class WrapDecorator:
                 })
                 try:
                     response = func(*args, **kwargs)
-                    if isinstance(response, Union[ModelMetaclass, BaseModel]):
+                    if isinstance(response, (ModelMetaclass, BaseModel)):
                         response = cast(BaseModel, response).model_dump()
                     else:
-                        assert(instance(response, dict)), f"response type is wrong: {type(response)}"
+                        assert isinstance(response, dict), f"response type is wrong: {type(response)}"
                     span.set_attributes({
                         "output.value": json.dumps(response, default=str, ensure_ascii=False),  
                     })
@@ -148,10 +153,10 @@ class WrapDecorator:
                 })
                 try:
                     response = await func(*args, **kwargs)
-                    if isinstance(response, Union[ModelMetaclass, BaseModel]):
-                        response: dict = cast(BaseModel, response).model_dump()
+                    if isinstance(response, (ModelMetaclass, BaseModel)):
+                        response = cast(BaseModel, response).model_dump()
                     else:
-                        assert(isinstance(response, dict)), "response type is wrong"
+                        assert isinstance(response, dict), "response type is wrong"
                     span.set_attributes({
                         "output.value": json.dumps(response, default=str, ensure_ascii=False), 
                     })
@@ -197,10 +202,10 @@ class EmptyWrapDecorator:
 if os.getenv("OTEL_COLLECTOR_ENDPOINT"):
     _initialize_default_remote_tracer()
     opentelemetry_tracer = WrapDecorator(tracer=_get_default_tracer())
-    OTEL_ENABLED &= True
+    # OTEL_ENABLED stays True (set in the import-try block above)
 else:
     opentelemetry_tracer = EmptyWrapDecorator()
-    OTEL_ENABLED &= False
+    OTEL_ENABLED = False
 
 if __name__ == "__main__":
     from abc import abstractmethod
