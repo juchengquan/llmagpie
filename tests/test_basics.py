@@ -740,6 +740,107 @@ def test_call_with_schema_raises_after_exhausted_repairs():
     assert ei.value.last_content == "never valid json"
 
 
+# ---------------------------------------------------------------------------
+# LLM response caching: short-circuit `_complete` on (model, messages, kwargs).
+# ---------------------------------------------------------------------------
+
+
+def test_cached_llm_node_hits_after_first_call():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.cache import (
+        CachedLLMNode,
+        InMemoryCache,
+    )
+
+    calls = {"n": 0}
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            calls["n"] += 1
+            return LLMResponse(content=f"call#{calls['n']}")
+
+    inner = _Stub(name="inner")
+    cached = CachedLLMNode(name="cached", inner=inner, cache=InMemoryCache())
+
+    async def run_twice():
+        m = [{"role": "user", "content": "ping"}]
+        r1 = await cached._complete("m", list(m))
+        r2 = await cached._complete("m", list(m))
+        return r1, r2
+
+    r1, r2 = asyncio.run(run_twice())
+    assert calls["n"] == 1  # inner only called once
+    assert r1.content == r2.content == "call#1"  # second is cache hit
+
+
+def test_cached_llm_node_differentiates_on_model_and_messages():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.cache import (
+        CachedLLMNode,
+        InMemoryCache,
+    )
+
+    calls = {"n": 0}
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            calls["n"] += 1
+            return LLMResponse(content=f"call#{calls['n']}")
+
+    cached = CachedLLMNode(name="c", inner=_Stub(name="i"), cache=InMemoryCache())
+
+    async def run():
+        await cached._complete("model-a", [{"role": "user", "content": "x"}])
+        await cached._complete("model-b", [{"role": "user", "content": "x"}])  # diff model
+        await cached._complete("model-a", [{"role": "user", "content": "y"}])  # diff message
+
+    asyncio.run(run())
+    assert calls["n"] == 3  # all distinct keys
+
+
+def test_file_cache_round_trip(tmp_path):
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators.cache import FileCache
+
+    cache = FileCache(tmp_path)
+
+    async def driver():
+        assert await cache.get("k") is None
+        await cache.set("k", b"hello")
+        assert await cache.get("k") == b"hello"
+        # Persists across reopens.
+        cache2 = FileCache(tmp_path)
+        assert await cache2.get("k") == b"hello"
+
+    asyncio.run(driver())
+
+
+def test_in_memory_cache_ttl_expiry():
+    import asyncio
+    import time
+
+    from llmagpie.experimental.nodes.generators.cache import InMemoryCache
+
+    cache = InMemoryCache()
+
+    async def driver():
+        await cache.set("k", b"v", ttl=1)
+        assert await cache.get("k") == b"v"
+
+    asyncio.run(driver())
+    time.sleep(1.05)
+
+    async def check():
+        assert await cache.get("k") is None
+
+    asyncio.run(check())
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
