@@ -77,7 +77,15 @@ class BaseStateStore(BaseModel):
     def clean_user_defined_states(self):
         # Access via the class (not the instance) to avoid the
         # PydanticDeprecatedSince211 warning on `self.model_fields`.
+        # Skip the three framework-built state dicts (input_state /
+        # output_state / output_history_state): they are session-keyed
+        # and are cleaned by the explicit `.pop(session_id, ...)` loop
+        # in `clean_states`. Calling `.clear()` on them would wipe other
+        # in-flight sessions' data, which breaks concurrent invocations.
+        _framework = {"input_state", "output_state", "output_history_state"}
         for name in type(self).model_fields:
+            if name in _framework:
+                continue
             obj = getattr(self, name)
             if isinstance(obj, BaseState):
                 obj.clear()

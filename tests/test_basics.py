@@ -246,6 +246,57 @@ def test_pipeline_visualization_rejects_bad_direction():
         pipe.to_graphviz(rankdir="diagonal")
 
 
+# ---------------------------------------------------------------------------
+# Batch invocation: fan a list of inputs across the same pipeline.
+# ---------------------------------------------------------------------------
+
+
+def test_batch_invoke_preserves_order_and_runs_concurrently():
+    from llmagpie import BasePipeline
+    from llmagpie.base.utils.batch import batch_invoke
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _Shout(BaseNode):
+        async def async_call(self, name: str):
+            return {"out": f"hello {name}".upper()}
+
+    node = _Shout(name="shout")
+    pipe = BasePipeline(name="pipe", nodes=[node])
+    pipe.compile()
+
+    names = ["world", "magpie", "anthropic"]
+    results = batch_invoke(pipe, [{"shout.name": n} for n in names])
+
+    assert len(results) == 3
+    finals = [r[-1].value for r in results]
+    assert finals == [{"out": "HELLO WORLD"}, {"out": "HELLO MAGPIE"}, {"out": "HELLO ANTHROPIC"}]
+
+
+def test_batch_invoke_return_exceptions_captures_failures():
+    import asyncio
+
+    from llmagpie import BasePipeline
+    from llmagpie.base.utils.batch import async_batch_invoke
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _Maybe(BaseNode):
+        async def async_call(self, name: str):
+            if name == "boom":
+                raise ValueError("intentional")
+            return {"out": name}
+
+    node = _Maybe(name="maybe")
+    pipe = BasePipeline(name="pipe", nodes=[node])
+    pipe.compile()
+
+    inputs = [{"maybe.name": "ok"}, {"maybe.name": "boom"}, {"maybe.name": "fine"}]
+    results = asyncio.run(async_batch_invoke(pipe, inputs, return_exceptions=True))
+
+    assert results[0][-1].value == {"out": "ok"}
+    assert isinstance(results[1], ValueError)
+    assert results[2][-1].value == {"out": "fine"}
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
