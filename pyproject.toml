@@ -35,6 +35,9 @@ exp = [
 openai = [
     "openai>=1.50,<3.0",
 ]
+anthropic = [
+    "anthropic>=0.40,<1.0",
+]
 opentelemetry = [
     "opentelemetry-api>=1.30,<2",
     "opentelemetry-sdk>=1.30,<2",

@@ -468,6 +468,161 @@ def test_multi_switch_rejects_empty_or_duplicate_branches():
         multi_switch(pipe, _src, src_key="x", dest_key="x", branches={})
 
 
+# ---------------------------------------------------------------------------
+# LLM provider abstraction: BaseLLMNode + LLMResponse driver loop.
+# ---------------------------------------------------------------------------
+
+
+def test_base_llm_node_tool_loop_terminates_when_no_tool_calls():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+
+    class _Stub(BaseLLMNode):
+        # Pydantic v2: declare in-class so model_fields picks it up.
+        async def _complete(self, model, messages, **kwargs):
+            return LLMResponse(content="done", tool_calls=[], finish_reason="stop")
+
+    node = _Stub(name="stub")
+
+    async def drive():
+        out = []
+        async for r in node.async_call(model="m", messages=[{"role": "user", "content": "hi"}]):
+            out.append(r)
+        return out
+
+    results = asyncio.run(drive())
+    assert len(results) == 1
+    assert results[0].content == "done"
+    assert results[0].tool_calls == []
+
+
+def test_base_llm_node_tool_loop_dispatches_and_reprompts():
+    import asyncio
+
+    from llmagpie.base.tools import ToolsNode
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+
+    @MakeNode.from_function(name="echo", outputs={"value": str})
+    def _echo(value: str) -> str:
+        """Echo a value."""
+        return value
+
+    tools = ToolsNode(name="tools", tools=[_echo])
+
+    class _Stub(BaseLLMNode):
+        # First call: ask to call echo. Second call: settle with final answer.
+        async def _complete(self, model, messages, **kwargs):
+            if any(m.get("role") == "tool" for m in messages):
+                return LLMResponse(content="all done", tool_calls=[], finish_reason="stop")
+            return LLMResponse(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"value": "hi"}'},
+                    }
+                ],
+                finish_reason="tool_calls",
+            )
+
+    node = _Stub(name="stub", tools_node=tools)
+
+    async def drive():
+        return [
+            r
+            async for r in node.async_call(
+                model="m", messages=[{"role": "user", "content": "use echo"}]
+            )
+        ]
+
+    results = asyncio.run(drive())
+    # Two LLM round-trips → two LLMResponses.
+    assert len(results) == 2
+    assert results[0].tool_calls != []
+    assert results[-1].content == "all done"
+    assert results[-1].tool_calls == []
+
+
+def test_base_llm_node_respects_max_tool_iterations():
+    import asyncio
+
+    from llmagpie.base.tools import ToolsNode
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+
+    @MakeNode.from_function(name="echo", outputs={"value": str})
+    def _echo(value: str) -> str:
+        """Echo."""
+        return value
+
+    tools = ToolsNode(name="tools", tools=[_echo])
+
+    class _Looper(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            return LLMResponse(
+                content="",
+                tool_calls=[
+                    {
+                        "id": f"call_{len(messages)}",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"value": "x"}'},
+                    }
+                ],
+                finish_reason="tool_calls",
+            )
+
+    node = _Looper(name="loop", tools_node=tools, max_tool_iterations=2)
+
+    async def drive():
+        return [
+            r
+            async for r in node.async_call(model="m", messages=[{"role": "user", "content": "go"}])
+        ]
+
+    results = asyncio.run(drive())
+    # 1 initial call + 2 iterations = 3 LLMResponses
+    assert len(results) == 3
+    # Cap was hit; last response still has tool_calls (it didn't get to settle).
+    assert results[-1].tool_calls != []
+
+
+def test_anthropic_message_translation_round_trip():
+    """Unit-test the (private) Anthropic message translation without
+    hitting the network."""
+    from llmagpie.experimental.nodes.generators.anthropic_node import (
+        _split_system,
+        _to_anthropic_messages,
+    )
+
+    openai_msgs = [
+        {"role": "system", "content": "be helpful"},
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": "calling tool",
+            "tool_calls": [
+                {
+                    "id": "t1",
+                    "type": "function",
+                    "function": {"name": "search", "arguments": '{"q": "rain"}'},
+                }
+            ],
+        },
+        {"role": "tool", "content": "sunny", "tool_call_id": "t1"},
+    ]
+    system, rest = _split_system(openai_msgs)
+    assert system == "be helpful"
+    translated = _to_anthropic_messages(rest)
+    # user, assistant-with-tool_use, user-with-tool_result
+    assert len(translated) == 3
+    assert translated[0]["role"] == "user"
+    assert translated[1]["role"] == "assistant"
+    assert any(b["type"] == "tool_use" and b["name"] == "search" for b in translated[1]["content"])
+    assert translated[2]["role"] == "user"
+    assert translated[2]["content"][0]["type"] == "tool_result"
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
