@@ -841,6 +841,121 @@ def test_in_memory_cache_ttl_expiry():
     asyncio.run(check())
 
 
+# ---------------------------------------------------------------------------
+# Conversation memory: persist history across `_complete` calls per thread.
+# ---------------------------------------------------------------------------
+
+
+def test_memory_node_persists_history_across_calls():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.memory import InMemoryStore, MemoryNode
+
+    seen_lengths: list[int] = []
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            seen_lengths.append(len(messages))
+            return LLMResponse(content=f"reply{len(messages)}")
+
+    store = InMemoryStore()
+    node = MemoryNode(name="mem", inner=_Stub(name="i"), store=store)
+
+    async def driver():
+        await node._complete("m", [{"role": "user", "content": "hi"}], thread_id="t1")
+        await node._complete("m", [{"role": "user", "content": "again"}], thread_id="t1")
+        return await store.get("t1")
+
+    history = asyncio.run(driver())
+
+    # First call: 1 message (just "hi"). Second call: prev 2 (user+assistant)
+    # + 1 new user = 3 messages forwarded.
+    assert seen_lengths == [1, 3]
+    # Stored: user/assistant from turn 1 + user/assistant from turn 2 = 4 entries.
+    assert [m["role"] for m in history] == ["user", "assistant", "user", "assistant"]
+    assert history[0]["content"] == "hi"
+    assert history[2]["content"] == "again"
+
+
+def test_memory_node_isolates_threads():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.memory import InMemoryStore, MemoryNode
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            return LLMResponse(content="ok")
+
+    store = InMemoryStore()
+    node = MemoryNode(name="mem", inner=_Stub(name="i"), store=store)
+
+    async def driver():
+        await node._complete("m", [{"role": "user", "content": "alice-hi"}], thread_id="alice")
+        await node._complete("m", [{"role": "user", "content": "bob-hi"}], thread_id="bob")
+        return await store.get("alice"), await store.get("bob")
+
+    alice, bob = asyncio.run(driver())
+    assert len(alice) == 2 and alice[0]["content"] == "alice-hi"
+    assert len(bob) == 2 and bob[0]["content"] == "bob-hi"
+
+
+def test_memory_node_trims_to_max_messages_preserving_system():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators._base import BaseLLMNode, LLMResponse
+    from llmagpie.experimental.nodes.generators.memory import InMemoryStore, MemoryNode
+
+    seen_messages: list[list[dict]] = []
+
+    class _Stub(BaseLLMNode):
+        async def _complete(self, model, messages, **kwargs):
+            seen_messages.append([dict(m) for m in messages])
+            return LLMResponse(content="ok")
+
+    store = InMemoryStore()
+    # Pre-seed with system + many turns.
+    asyncio.run(
+        store.append(
+            "t",
+            [
+                {"role": "system", "content": "SYS"},
+                {"role": "user", "content": "u1"},
+                {"role": "assistant", "content": "a1"},
+                {"role": "user", "content": "u2"},
+                {"role": "assistant", "content": "a2"},
+            ],
+        )
+    )
+    node = MemoryNode(name="mem", inner=_Stub(name="i"), store=store, max_messages=3)
+
+    asyncio.run(node._complete("m", [{"role": "user", "content": "u3"}], thread_id="t"))
+    # max_messages=3 should keep system + last 2 non-system turns of the
+    # combined (history + new) list. Combined length = 6, trimmed to 3 =
+    # [SYS, a2, u3].
+    sent = seen_messages[0]
+    assert sent[0]["role"] == "system"
+    assert len(sent) == 3
+    assert sent[-1]["content"] == "u3"
+
+
+def test_memory_store_clear_drops_thread():
+    import asyncio
+
+    from llmagpie.experimental.nodes.generators.memory import InMemoryStore
+
+    store = InMemoryStore()
+
+    async def driver():
+        await store.append("t", [{"role": "user", "content": "x"}])
+        assert (await store.get("t"))[0]["content"] == "x"
+        await store.clear("t")
+        assert await store.get("t") == []
+
+    asyncio.run(driver())
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
