@@ -471,6 +471,145 @@ def test_any_of_combines_multiple_conditions():
     assert len(llm._calls) == 1  # the length finish_reason matched
 
 
+# ---------------------------------------------------------------------------
+# Streaming: stream_complete + Agent.stream + collect_stream reduction.
+# ---------------------------------------------------------------------------
+
+
+class _StreamingStub(BaseLLMNode):
+    """A BaseLLMNode whose stream_complete yields scripted StreamChunks."""
+
+    def _set_stream(self, chunks: list) -> None:
+        object.__setattr__(self, "_chunks", list(chunks))
+        object.__setattr__(self, "_stream_calls", 0)
+
+    async def stream_complete(self, model, messages, **kwargs):
+        self._stream_calls += 1
+        for chunk in self._chunks:
+            yield chunk
+
+    async def _complete(self, model, messages, **kwargs):
+        # collect_stream over the same scripted stream gives a single LLMResponse.
+        return await BaseLLMNode.collect_stream(self.stream_complete(model, messages, **kwargs))
+
+
+def test_stream_chunk_collection_assembles_full_response():
+    from llmagpie.experimental.nodes.generators._base import StreamChunk
+
+    llm = _StreamingStub(name="s")
+    llm._set_stream(
+        [
+            StreamChunk(delta_content="Hel", role="assistant"),
+            StreamChunk(delta_content="lo "),
+            StreamChunk(delta_content="world!"),
+            StreamChunk(
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=4, completion_tokens=3, total_tokens=7),
+            ),
+        ]
+    )
+
+    response = asyncio.run(llm._complete(model="m", messages=[]))
+    assert response.content == "Hello world!"
+    assert response.finish_reason == "stop"
+    assert response.role == "assistant"
+    assert response.usage.total_tokens == 7
+
+
+def test_stream_collects_partial_tool_calls_by_id():
+    from llmagpie.experimental.nodes.generators._base import StreamChunk
+
+    llm = _StreamingStub(name="s")
+    llm._set_stream(
+        [
+            StreamChunk(
+                delta_tool_calls=[
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": ""},
+                    }
+                ]
+            ),
+            StreamChunk(
+                delta_tool_calls=[
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "", "arguments": '{"value":'},
+                    }
+                ]
+            ),
+            StreamChunk(
+                delta_tool_calls=[
+                    {
+                        "id": "tc_1",
+                        "type": "function",
+                        "function": {"name": "", "arguments": ' "hi"}'},
+                    }
+                ]
+            ),
+            StreamChunk(finish_reason="tool_calls"),
+        ]
+    )
+
+    response = asyncio.run(llm._complete(model="m", messages=[]))
+    assert len(response.tool_calls) == 1
+    tc = response.tool_calls[0]
+    assert tc["id"] == "tc_1"
+    assert tc["function"]["name"] == "echo"
+    assert tc["function"]["arguments"] == '{"value": "hi"}'
+
+
+def test_agent_stream_yields_chunks_and_records_history():
+    from llmagpie.experimental.nodes.generators._base import StreamChunk
+
+    llm = _StreamingStub(name="s")
+    llm._set_stream(
+        [
+            StreamChunk(delta_content="par", role="assistant"),
+            StreamChunk(delta_content="t1 "),
+            StreamChunk(delta_content="part2"),
+            StreamChunk(
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=3, completion_tokens=5, total_tokens=8),
+            ),
+        ]
+    )
+
+    store = InMemoryStore()
+    agent = Agent(llm=llm, model="m", memory_store=store, system_prompt="be brief")
+
+    async def driver():
+        seen = []
+        async for chunk in agent.stream("hi", thread_id="t1"):
+            seen.append(chunk.delta_content)
+        return seen
+
+    deltas = asyncio.run(driver())
+    assert "".join(deltas) == "part1 part2"
+
+    # Memory persists the assembled assistant message.
+    history = asyncio.run(store.get("t1"))
+    assistant_turn = next(m for m in history if m["role"] == "assistant")
+    assert assistant_turn["content"] == "part1 part2"
+
+
+def test_agent_stream_raises_for_non_streaming_provider():
+    """A provider that doesn't implement stream_complete should fail
+    fast rather than silently fall back to non-streaming."""
+    llm = _RecorderLLM(name="non-streaming")
+    llm._set_script([_resp("ignored")])
+    agent = Agent(llm=llm, model="m")
+
+    async def driver():
+        async for _ in agent.stream("hi"):
+            pass
+
+    with pytest.raises(NotImplementedError, match="stream_complete"):
+        asyncio.run(driver())
+
+
 def test_agent_raises_when_llm_yields_nothing():
     class _BrokenLLM(BaseLLMNode):
         async def async_call(self, model, messages, **kwargs):

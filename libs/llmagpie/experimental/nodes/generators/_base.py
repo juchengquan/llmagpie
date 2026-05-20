@@ -8,6 +8,7 @@ common ``async_call`` driver loop, including tool-calling iteration."""
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 from llmagpie.base.node import BaseNode, MakeNode
@@ -23,6 +24,34 @@ class LLMUsage(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+
+
+class StreamChunk(BaseModel):
+    """One incremental update from a streaming provider call.
+
+    Streaming yields a sequence of these; the final chunk usually
+    carries ``finish_reason`` and (where the provider supplies it)
+    cumulative ``usage`` for the whole turn. Intermediate chunks
+    typically only carry ``delta_content`` (and ``delta_tool_calls``
+    when the LLM is mid-tool-call).
+
+    Concatenating ``delta_content`` across all chunks reconstructs
+    the full text content. ``delta_tool_calls`` follow the same
+    pattern: each chunk contributes a partial tool-call dict (id,
+    name, and argument fragments) that callers must accumulate by id.
+
+    Fields are intentionally all-optional so providers can emit
+    minimal chunks without filler defaults.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    delta_content: str = ""
+    delta_tool_calls: list[dict] = Field(default_factory=list)
+    finish_reason: str | None = None
+    model: str | None = None
+    role: str | None = None
+    usage: LLMUsage | None = None
 
 
 class LLMResponse(BaseModel):
@@ -107,6 +136,83 @@ class BaseLLMNode(BaseNode):
     ) -> LLMResponse:
         """One round-trip to the provider. Subclasses must implement."""
         raise NotImplementedError
+
+    async def stream_complete(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ):
+        """Stream a single provider round-trip as :class:`StreamChunk` deltas.
+
+        Subclasses that support streaming override this and yield
+        chunks; providers without streaming support can leave the
+        default which raises :class:`NotImplementedError`.
+
+        Yields:
+            :class:`StreamChunk` objects. Concatenating ``delta_content``
+            across the full stream gives the final text. The terminal
+            chunk usually carries ``finish_reason`` and, where the
+            provider supplies it, the cumulative ``usage``.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement stream_complete; use _complete"
+        )
+        yield  # marks this method as an async generator (unreachable)
+
+    @staticmethod
+    async def collect_stream(
+        chunks: AsyncIterator[StreamChunk],
+    ) -> LLMResponse:
+        """Reduce a :meth:`stream_complete` output into a single
+        :class:`LLMResponse`. Useful when a caller wanted to consume
+        the stream but ended up needing the full thing — and as the
+        canonical example of how to assemble streamed pieces."""
+        content_parts: list[str] = []
+        tool_calls_by_id: dict[str, dict[str, Any]] = {}
+        finish_reason: str | None = None
+        model: str | None = None
+        role: str | None = None
+        final_usage: LLMUsage | None = None
+
+        async for chunk in chunks:
+            if chunk.delta_content:
+                content_parts.append(chunk.delta_content)
+            for tc in chunk.delta_tool_calls:
+                tc_id = tc.get("id")
+                if tc_id is None:
+                    continue
+                slot = tool_calls_by_id.setdefault(
+                    tc_id,
+                    {
+                        "id": tc_id,
+                        "type": tc.get("type", "function"),
+                        "function": {"name": "", "arguments": ""},
+                    },
+                )
+                fn = tc.get("function", {})
+                if fn.get("name"):
+                    slot["function"]["name"] = fn["name"]
+                if fn.get("arguments"):
+                    slot["function"]["arguments"] += fn["arguments"]
+            if chunk.finish_reason is not None:
+                finish_reason = chunk.finish_reason
+            if chunk.model is not None:
+                model = chunk.model
+            if chunk.role is not None:
+                role = chunk.role
+            if chunk.usage is not None:
+                final_usage = chunk.usage
+
+        return LLMResponse(
+            content="".join(content_parts),
+            tool_calls=list(tool_calls_by_id.values()),
+            finish_reason=finish_reason,
+            model=model,
+            role=role or "assistant",
+            usage=final_usage or LLMUsage(),
+            raw=None,
+        )
 
     def _format_tools_for_provider(self) -> list[dict] | None:
         """Return tool schemas in the provider's expected shape.

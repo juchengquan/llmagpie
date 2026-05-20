@@ -324,6 +324,102 @@ class Agent:
             last_error=last_error or RuntimeError("unknown"),
         )
 
+    async def stream(
+        self,
+        user_message: str | list[dict[str, Any]],
+        *,
+        thread_id: str = "default",
+        params: dict[str, Any] | None = None,
+    ):
+        """Stream a single LLM round-trip as :class:`StreamChunk` deltas.
+
+        Unlike :meth:`run`, ``stream`` does NOT drive the tool-call
+        loop — it yields chunks from one provider call. Once the
+        stream completes, callers can inspect the assembled response
+        and dispatch tools manually if needed (or just use
+        :meth:`run` instead for non-streaming tool agents).
+
+        Memory and cache short-circuits behave the same as :meth:`run`:
+        the assembled final response is appended to per-thread memory
+        on stream completion.
+
+        Args:
+            user_message: Plain string or full messages list.
+            thread_id: Conversation thread when memory is attached.
+            params: Forwarded to ``stream_complete`` as kwargs.
+
+        Yields:
+            :class:`StreamChunk` objects from the underlying provider.
+
+        Raises:
+            NotImplementedError: if the configured provider doesn't
+                implement ``stream_complete``.
+        """
+        from .nodes.generators._base import StreamChunk
+
+        base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
+        messages = self._build_messages(user_message)
+
+        # Walk down through memory/cache wrappers to find the bottom
+        # provider that actually streams. Memory and cache currently
+        # don't have streaming variants; for v1 we bypass them on the
+        # stream path and (if memory is attached) write the assembled
+        # final response back ourselves so history still accumulates.
+        innermost: Any = self._llm
+        while hasattr(innermost, "inner") and innermost.inner is not None:
+            innermost = innermost.inner
+
+        # Pop thread_id; the inner provider doesn't know about it.
+        kwargs = {k: v for k, v in base_params.items() if k != "thread_id"}
+
+        chunks: list[StreamChunk] = []
+        async for chunk in innermost.stream_complete(self.model, messages, **kwargs):
+            chunks.append(chunk)
+            yield chunk
+
+        # If memory is attached, persist the assembled exchange.
+        async def _replay():
+            for c in chunks:
+                yield c
+
+        if any(self._has_memory(w) for w in self._wrapper_chain()):
+            final = await innermost.collect_stream(_replay())
+            await self._persist_exchange(thread_id, messages, final)
+
+    # --- helpers for stream() ---
+
+    def _wrapper_chain(self) -> list[Any]:
+        chain: list[Any] = []
+        node: Any = self._llm
+        while node is not None:
+            chain.append(node)
+            node = getattr(node, "inner", None)
+        return chain
+
+    def _has_memory(self, wrapper: Any) -> bool:
+        return type(wrapper).__name__ == "MemoryNode"
+
+    async def _persist_exchange(
+        self,
+        thread_id: str,
+        messages: list[dict[str, Any]],
+        response: LLMResponse,
+    ) -> None:
+        """Mirror MemoryNode._complete's persistence step for the
+        stream path. We append the caller's new messages plus the
+        assistant turn, but not the historical messages already in
+        the store."""
+        for wrapper in self._wrapper_chain():
+            if self._has_memory(wrapper):
+                turn: dict[str, Any] = {
+                    "role": response.role,
+                    "content": response.content,
+                }
+                if response.tool_calls:
+                    turn["tool_calls"] = response.tool_calls
+                await wrapper.store.append(thread_id, [*messages, turn])
+                return
+
     async def clear_history(self, thread_id: str = "default") -> None:
         """Drop the persisted history for ``thread_id``. No-op if the
         agent wasn't constructed with a memory store."""

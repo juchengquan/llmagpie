@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 from pydantic import ConfigDict
 
-from ._base import BaseLLMNode, LLMResponse, LLMUsage
+from ._base import BaseLLMNode, LLMResponse, LLMUsage, StreamChunk
 
 
 class OllamaChatNode(BaseLLMNode):
@@ -103,6 +103,69 @@ class OllamaChatNode(BaseLLMNode):
             usage=usage,
             raw=None,
         )
+
+    async def stream_complete(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ):
+        """Stream Ollama's ``/api/chat`` response as :class:`StreamChunk` deltas.
+
+        Ollama returns one JSON object per line. Each line carries a
+        ``message.content`` slice (the new tokens) plus a ``done``
+        boolean; the final line additionally has ``done_reason``,
+        ``prompt_eval_count``, and ``eval_count``."""
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+        }
+        if (tools := self._format_tools_for_provider()) is not None:
+            payload["tools"] = tools
+        payload.update(kwargs)
+
+        first_chunk = True
+        async with self.client.stream("POST", "/api/chat", json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.strip():
+                    continue
+                body = json.loads(line)
+                msg = body.get("message", {}) or {}
+                delta_role = msg.get("role") if first_chunk else None
+                first_chunk = False
+
+                tool_calls: list[dict[str, Any]] = []
+                for tc in msg.get("tool_calls", []) or []:
+                    fn = tc.get("function", {}) or {}
+                    args = fn.get("arguments", {})
+                    if not isinstance(args, str):
+                        args = json.dumps(args)
+                    tool_calls.append(
+                        {
+                            "id": tc.get("id", uuid.uuid4().hex),
+                            "type": "function",
+                            "function": {"name": fn.get("name", ""), "arguments": args},
+                        }
+                    )
+
+                usage: LLMUsage | None = None
+                if body.get("done"):
+                    usage = LLMUsage(
+                        prompt_tokens=body.get("prompt_eval_count", 0) or 0,
+                        completion_tokens=body.get("eval_count", 0) or 0,
+                    )
+                    usage.total_tokens = usage.prompt_tokens + usage.completion_tokens
+
+                yield StreamChunk(
+                    delta_content=msg.get("content", "") or "",
+                    delta_tool_calls=tool_calls,
+                    finish_reason=body.get("done_reason"),
+                    model=body.get("model"),
+                    role=delta_role,
+                    usage=usage,
+                )
 
     async def aclose(self) -> None:
         """Close the underlying httpx.AsyncClient."""
