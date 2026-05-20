@@ -2,9 +2,13 @@
 
 ## Layout
 
-- `libs/llmagpie/` — the package (`from="libs"` in `pyproject.toml`). When
-  running scripts directly use `PYTHONPATH=libs python ...`; pytest is
-  already configured via `[tool.pytest.ini_options]` `pythonpath`.
+- `libs/llmagpie/` — the package. The wheel/sdist build copies it via
+  `[tool.hatch.build.targets.wheel] packages = ["libs/llmagpie"]`. When
+  running scripts directly use `PYTHONPATH=libs python ...` or `uv run python`
+  inside the synced venv; pytest is already configured via
+  `[tool.pytest.ini_options]` `pythonpath`.
+- The project uses `uv` + PEP 621 (`[project]` table). Build backend is
+  `hatchling`. There's a `uv.lock` checked in for reproducible installs.
 - `libs/llmagpie/base/` — public-ish core. Treat as stable.
 - `libs/llmagpie/core/opentelemetry/` — optional OTEL decorator. Becomes a
   no-op `EmptyWrapDecorator` if `OTEL_COLLECTOR_ENDPOINT` is unset or

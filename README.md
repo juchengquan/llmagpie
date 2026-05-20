@@ -13,14 +13,24 @@ pipelines as a single node.
 
 ## Install
 
+The project uses [`uv`](https://docs.astral.sh/uv/) and PEP 621 metadata.
+
 ```bash
-# from source
-poetry install                     # core
-poetry install -E opentelemetry    # with OTEL tracing
-poetry install -E exp              # with experimental extras (chromadb, sqlalchemy)
+uv sync                                  # core deps only
+uv sync --extra opentelemetry            # with OTEL tracing
+uv sync --extra exp                      # with experimental extras (chromadb, sqlalchemy)
+uv sync --extra openai                   # adds the OpenAI client
+uv sync --group dev                      # install dev tooling (pytest)
 ```
 
-Requires Python 3.10+.
+Or with pip directly:
+
+```bash
+pip install -e .                         # core
+pip install -e ".[opentelemetry,exp]"    # with extras
+```
+
+Requires Python 3.11+.
 
 ## Quick start
 
@@ -88,8 +98,8 @@ BaseConnectable          (abstract: anything wireable)
 ## Tests
 
 ```bash
-poetry install --with dev
-pytest
+uv sync --group dev
+uv run pytest
 ```
 
 The suite combines unit tests in [`tests/test_basics.py`](tests/test_basics.py)

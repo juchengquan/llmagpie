@@ -1,56 +1,72 @@
-[tool.poetry]
+[project]
 name = "llmagpie"
 version = "0.0.0"
 description = "A lightweight Python framework for composing LLM pipelines from nodes and DAGs."
-authors = ["blackmount8 <blackmount8@gmail.com>"]
-license = "GPL-3.0-or-later"
 readme = "README.md"
-homepage = "https://github.com/juchengquan/llmagpie"
-repository = "https://github.com/juchengquan/llmagpie"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+authors = [
+    { name = "blackmount8", email = "blackmount8@gmail.com" },
+]
 keywords = ["llm", "pipeline", "dag", "agent", "orchestration"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-packages = [
-    {include="llmagpie", from="libs"}
+dependencies = [
+    "networkx>=3.6,<4",
+    "Deprecated>=1.2,<2",
+    "pytz>=2025.1",
+    "wrapt>=1.17.0",
+    "pydantic>=2.8.0,<3",
+    "httpx>=0.28.0,<0.29",
+]
+
+[project.optional-dependencies]
+exp = [
+    "sqlalchemy>=2.0.30,<3",
+    "chromadb>=1.0.0,<2",
+]
+openai = [
+    "openai>=1.50,<3.0",
+]
+opentelemetry = [
+    "opentelemetry-api>=1.30,<2",
+    "opentelemetry-sdk>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/juchengquan/llmagpie"
+Repository = "https://github.com/juchengquan/llmagpie"
+Issues = "https://github.com/juchengquan/llmagpie/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
 ]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.poetry.dependencies]
-python = "^3.10"
-networkx = "^3.6"
-Deprecated = "^1.2"
-pytz = ">=2025.1"
-wrapt = ">=1.17.0"
-pydantic = "^2.8.0"
-httpx = "^0.28.0"
+[tool.hatch.build.targets.wheel]
+packages = ["libs/llmagpie"]
 
-sqlalchemy = { version = "^2.0.30", optional=true }
-chromadb = {version = "^0.5.0", optional=true }
-openai = { version = ">=1.50,<3.0", optional=true }
-opentelemetry-api = { version = "^1.30", optional=true }
-opentelemetry-sdk = { version = "^1.30", optional=true }
-opentelemetry-exporter-otlp-proto-grpc = { version = "^1.30", optional=true }
-opentelemetry-exporter-otlp-proto-http = { version = "^1.30", optional=true }
-
-[tool.poetry.extras]
-exp = ["sqlalchemy", "chromadb"]
-openai = ["openai"]
-opentelemetry = ["opentelemetry-api", "opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-grpc", "opentelemetry-exporter-otlp-proto-http"]
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^9.0"
+[tool.hatch.build.targets.sdist]
+include = [
+    "libs/llmagpie",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
