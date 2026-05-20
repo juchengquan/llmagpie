@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 import time
 import json
-import sys
 
 from asyncio import FIRST_COMPLETED, wait, CancelledError, get_running_loop
 from pydantic import Field
@@ -23,13 +22,9 @@ from llmagpie.core.opentelemetry import (
 
 from typing import (
     cast,
-    AsyncGenerator,
+    AsyncGenerator, Self,
     Sequence, Dict, Union, Optional, List,
 )
-if sys.version_info.minor >= 11:
-    from typing import Self
-else:
-    from typing_extensions import Self
 
 
 class _BaseTypePipeline(BaseConnectable):

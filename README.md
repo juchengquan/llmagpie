@@ -30,7 +30,7 @@ pip install -e .                         # core
 pip install -e ".[opentelemetry,exp]"    # with extras
 ```
 
-Requires Python 3.11+.
+Requires Python 3.12+.
 
 ## Quick start
 
