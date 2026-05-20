@@ -22,7 +22,7 @@ uv run ruff check libs/ tests/        # lint
 uv run ruff format --check libs/ tests/   # format drift
 uv run mypy libs/llmagpie             # type check
 uv run pytest                          # 25 tests, ~16s
-uv run pytest --cov                    # with coverage
+uv run pytest --cov                    # with coverage (fails if <60%)
 ```
 
 `ruff format` (without `--check`) auto-formats. Run it before

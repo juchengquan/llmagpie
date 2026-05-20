@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - GitHub Actions CI: lint (ruff), typecheck (mypy), test matrix (Python
   3.12 / 3.13), coverage upload, and wheel/sdist build smoke test.
+- Coverage threshold: `[tool.coverage.report] fail_under = 60`. Pytest
+  exits non-zero (and CI fails) if total branch coverage drops below
+  60%.
 - `pytest-cov` and `mypy` to the `dev` dependency group; matching
   `[tool.coverage.*]` and `[tool.mypy]` configuration in
   `pyproject.toml`.

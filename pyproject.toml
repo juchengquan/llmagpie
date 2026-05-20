@@ -70,6 +70,7 @@ omit = ["libs/llmagpie/experimental/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+fail_under = 60
 exclude_lines = [
     "pragma: no cover",
     "raise NotImplementedError",
