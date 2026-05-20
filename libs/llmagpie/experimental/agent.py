@@ -34,6 +34,26 @@ from .nodes.generators.structured import StructuredOutputError, _extract_json_pa
 M = TypeVar("M", bound=BaseModel)
 
 
+class BudgetExceededError(RuntimeError):
+    """Raised by :class:`Agent` when a single ``run()`` would exceed
+    the caller-supplied token or cost ceiling. ``usage_so_far`` reflects
+    the cumulative consumption up to (and including) the last
+    completed provider call before the budget was tripped."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        usage_so_far: LLMUsage,
+        budget_limit: float,
+        budget_dimension: str,
+    ) -> None:
+        super().__init__(message)
+        self.usage_so_far = usage_so_far
+        self.budget_limit = budget_limit
+        self.budget_dimension = budget_dimension
+
+
 class AgentResult(BaseModel):
     """The terminal result of an :meth:`Agent.run` call.
 
@@ -109,6 +129,10 @@ class Agent:
         response_schema: type[BaseModel] | None = None,
         max_tool_iterations: int = 5,
         repair_attempts: int = 1,
+        max_tokens_per_run: int | None = None,
+        max_cost_per_run: float | None = None,
+        cost_per_1k_tokens: dict[str, float] | None = None,
+        stop_condition: Any = None,
         name: str = "agent",
     ) -> None:
         # Compose: tools -> memory -> cache -> raw provider.
@@ -119,6 +143,8 @@ class Agent:
             wrapped = MemoryNode(name=f"{name}-memory", inner=wrapped, store=memory_store)
 
         wrapped.max_tool_iterations = max_tool_iterations
+        if stop_condition is not None:
+            wrapped.stop_condition = stop_condition
         if tools:
             wrapped.bind_tools(tools)
 
@@ -127,7 +153,48 @@ class Agent:
         self.system_prompt = system_prompt
         self.response_schema = response_schema
         self.repair_attempts = repair_attempts
+        self.max_tokens_per_run = max_tokens_per_run
+        self.max_cost_per_run = max_cost_per_run
+        # Keys: {"prompt", "completion"} → $/1k tokens. Optional; only
+        # consulted when `max_cost_per_run` is set or when callers
+        # request `cost_of(usage)` directly.
+        self.cost_per_1k_tokens = cost_per_1k_tokens or {}
         self.name = name
+
+    def cost_of(self, usage: LLMUsage) -> float:
+        """Convert an :class:`LLMUsage` to a dollar figure using the
+        agent's ``cost_per_1k_tokens`` table. Returns 0.0 if no price
+        table was configured."""
+        if not self.cost_per_1k_tokens:
+            return 0.0
+        prompt_price = self.cost_per_1k_tokens.get("prompt", 0.0)
+        completion_price = self.cost_per_1k_tokens.get("completion", 0.0)
+        return (
+            usage.prompt_tokens / 1000.0 * prompt_price
+            + usage.completion_tokens / 1000.0 * completion_price
+        )
+
+    def _enforce_budget(self, usage: LLMUsage) -> None:
+        """Check the cumulative ``usage`` against the configured
+        ceilings. Raises :class:`BudgetExceededError` on violation."""
+        if self.max_tokens_per_run is not None and usage.total_tokens > self.max_tokens_per_run:
+            raise BudgetExceededError(
+                f"{self.name}: run exceeded max_tokens_per_run "
+                f"({usage.total_tokens} > {self.max_tokens_per_run})",
+                usage_so_far=usage,
+                budget_limit=float(self.max_tokens_per_run),
+                budget_dimension="tokens",
+            )
+        if self.max_cost_per_run is not None:
+            cost = self.cost_of(usage)
+            if cost > self.max_cost_per_run:
+                raise BudgetExceededError(
+                    f"{self.name}: run exceeded max_cost_per_run "
+                    f"(${cost:.4f} > ${self.max_cost_per_run:.4f})",
+                    usage_so_far=usage,
+                    budget_limit=self.max_cost_per_run,
+                    budget_dimension="cost",
+                )
 
     def _build_messages(self, user_message: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Normalize the user-supplied input to an OpenAI-style messages list."""
@@ -162,6 +229,9 @@ class Agent:
             total.prompt_tokens += response.usage.prompt_tokens
             total.completion_tokens += response.usage.completion_tokens
             total.total_tokens += response.usage.total_tokens
+            # Enforce per-run budget after each provider round-trip so
+            # tool-call loops can't silently overspend.
+            self._enforce_budget(total)
         if last is None:
             raise RuntimeError(
                 f"{self.name}: LLM driver yielded zero responses (provider misbehaved)"

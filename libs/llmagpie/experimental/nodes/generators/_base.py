@@ -81,6 +81,11 @@ class BaseLLMNode(BaseNode):
 
     tools_node: Any = None  # Optional[ToolsNode]; typed Any to avoid cycle.
     max_tool_iterations: int = 3
+    # Optional callable invoked after each provider round-trip in the
+    # tool-call loop. Return True to stop early, regardless of whether
+    # the response still has pending tool calls. Typed as Any to avoid
+    # pydantic refusing the Callable shape on `arbitrary_types_allowed`.
+    stop_condition: Any = None
 
     def bind_tools(self, tools: list[BaseNode]) -> BaseLLMNode:
         """Attach a list of tool nodes that the LLM may call.
@@ -170,6 +175,12 @@ class BaseLLMNode(BaseNode):
         kwargs = params or {}
         response = await self._complete(model, messages, **kwargs)
 
+        # If the caller-supplied stop_condition fires on the very first
+        # response, honor it immediately — even before the tool loop.
+        if self.stop_condition is not None and self.stop_condition(response):
+            yield response
+            return
+
         if direct_tool_outputs or self.tools_node is None or not response.tool_calls:
             yield response
             return
@@ -182,4 +193,6 @@ class BaseLLMNode(BaseNode):
             self._append_tool_messages(messages, response, tool_outputs)
             response = await self._complete(model, messages, **kwargs)
             iterations += 1
+            if self.stop_condition is not None and self.stop_condition(response):
+                break
         yield response

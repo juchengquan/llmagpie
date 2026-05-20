@@ -1,6 +1,8 @@
-"""Smoke-test every example under `_examples/simple_composition/` by running
-it as a subprocess and asserting it exits cleanly. The examples exercise the
-full node/pipeline/DAG machinery and act as integration tests."""
+"""Smoke-test every example under `_examples/` by running it as a
+subprocess and asserting it exits cleanly. The examples exercise the
+full node/pipeline/DAG machinery (in `simple_composition/`) and the
+high-level Agent abstraction (in `agents/`), so they double as
+integration tests for the framework."""
 
 import os
 import subprocess
@@ -10,11 +12,19 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_EXAMPLES_DIR = _REPO_ROOT / "_examples" / "simple_composition"
+_EXAMPLES_ROOT = _REPO_ROOT / "_examples"
 
 
 def _discover_examples():
-    return sorted(p for p in _EXAMPLES_DIR.glob("*.py") if p.name != "__init__.py")
+    paths: list[Path] = []
+    for example_dir in sorted(_EXAMPLES_ROOT.iterdir()):
+        if not example_dir.is_dir():
+            continue
+        for f in sorted(example_dir.glob("*.py")):
+            if f.name.startswith("_"):  # helper modules (e.g. _mock.py) aren't entry points
+                continue
+            paths.append(f)
+    return paths
 
 
 def _coverage_active() -> bool:
@@ -36,7 +46,15 @@ def _coverage_active() -> bool:
 @pytest.mark.parametrize("example_path", _discover_examples(), ids=lambda p: p.stem)
 def test_example_runs_cleanly(example_path: Path):
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(_REPO_ROOT / "libs") + os.pathsep + env.get("PYTHONPATH", "")
+    # libs/ for `from llmagpie import ...`; the example's own dir for
+    # sibling helpers like `_examples/agents/_mock.py` (`from _mock import ...`).
+    env["PYTHONPATH"] = os.pathsep.join(
+        [
+            str(_REPO_ROOT / "libs"),
+            str(example_path.parent),
+            env.get("PYTHONPATH", ""),
+        ]
+    )
 
     if _coverage_active():
         # Wrap the subprocess in `coverage run` so its instrumentation merges
@@ -55,6 +73,9 @@ def test_example_runs_cleanly(example_path: Path):
     else:
         cmd = [sys.executable, str(example_path)]
 
+    # cwd stays at the repo root so the `[tool.coverage.run] source`
+    # relative path resolves correctly; sibling helper imports are
+    # handled via PYTHONPATH (above).
     result = subprocess.run(
         cmd,
         capture_output=True,

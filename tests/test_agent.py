@@ -269,6 +269,208 @@ def test_agent_run_forwards_params_to_provider():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Budget enforcement: max_tokens_per_run / max_cost_per_run.
+# ---------------------------------------------------------------------------
+
+
+def test_agent_raises_budget_exceeded_on_token_ceiling():
+    from llmagpie.experimental.agent import BudgetExceededError
+
+    llm = _RecorderLLM(name="recorder")
+    # Single response with 10 total_tokens; budget is 5 → trip.
+    llm._set_script(
+        [
+            LLMResponse(
+                content="big", usage=LLMUsage(prompt_tokens=4, completion_tokens=6, total_tokens=10)
+            )
+        ]
+    )
+    agent = Agent(llm=llm, model="m", max_tokens_per_run=5)
+
+    with pytest.raises(BudgetExceededError) as ei:
+        asyncio.run(agent.run("hi"))
+    assert ei.value.budget_dimension == "tokens"
+    assert ei.value.usage_so_far.total_tokens == 10
+
+
+def test_agent_raises_budget_exceeded_across_tool_loop():
+    """Budget is checked AFTER each round-trip; cumulative usage across
+    the tool-call loop is what gets compared."""
+    from llmagpie.experimental.agent import BudgetExceededError
+
+    llm = _RecorderLLM(name="recorder")
+    llm._set_script(
+        [
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"value": "x"}'},
+                    }
+                ],
+                finish_reason="tool_calls",
+                usage=LLMUsage(prompt_tokens=3, completion_tokens=3, total_tokens=6),
+            ),
+            LLMResponse(
+                content="settled",
+                usage=LLMUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+            ),
+        ]
+    )
+
+    @MakeNode.from_function(name="echo", outputs={"value": str})
+    def _echo(value: str) -> str:
+        """Echo."""
+        return value
+
+    agent = Agent(llm=llm, model="m", tools=[_echo], max_tokens_per_run=10)
+
+    with pytest.raises(BudgetExceededError):
+        # First round: 6 tokens (OK). Second round: 6+10=16 > 10 → trips.
+        asyncio.run(agent.run("call echo"))
+
+
+def test_agent_max_cost_per_run_uses_price_table():
+    from llmagpie.experimental.agent import BudgetExceededError
+
+    llm = _RecorderLLM(name="recorder")
+    llm._set_script(
+        [
+            LLMResponse(
+                content="x",
+                usage=LLMUsage(prompt_tokens=1000, completion_tokens=1000, total_tokens=2000),
+            )
+        ]
+    )
+    # $0.003 prompt + $0.015 completion per 1k → $0.018 total.
+    agent = Agent(
+        llm=llm,
+        model="m",
+        cost_per_1k_tokens={"prompt": 0.003, "completion": 0.015},
+        max_cost_per_run=0.01,
+    )
+    with pytest.raises(BudgetExceededError) as ei:
+        asyncio.run(agent.run("hi"))
+    assert ei.value.budget_dimension == "cost"
+
+
+def test_agent_cost_of_returns_zero_without_price_table():
+    llm = _RecorderLLM(name="recorder")
+    llm._set_script([_resp("ok")])
+    agent = Agent(llm=llm, model="m")
+    assert agent.cost_of(LLMUsage(prompt_tokens=999, completion_tokens=999)) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Semantic stop conditions: factory helpers + driver-loop integration.
+# ---------------------------------------------------------------------------
+
+
+def test_stop_on_content_match_breaks_tool_loop():
+    from llmagpie.experimental.nodes.generators.stop import stop_on_content_match
+
+    llm = _RecorderLLM(name="recorder")
+    # Round 1: tool call. Round 2: says DONE → stop here, no round 3.
+    llm._set_script(
+        [
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"value": "x"}'},
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            _resp("Result is X. DONE"),
+            _resp("should-never-be-reached"),
+        ]
+    )
+
+    @MakeNode.from_function(name="echo", outputs={"value": str})
+    def _echo(value: str) -> str:
+        """Echo."""
+        return value
+
+    agent = Agent(
+        llm=llm,
+        model="m",
+        tools=[_echo],
+        stop_condition=stop_on_content_match(r"\bDONE\b"),
+    )
+    result = asyncio.run(agent.run("go"))
+    assert "DONE" in result.content
+    assert len(llm._calls) == 2  # third scripted response wasn't consumed
+
+
+def test_stop_on_tool_name_stops_on_specific_tool_call():
+    from llmagpie.experimental.nodes.generators.stop import stop_on_tool_name
+
+    llm = _RecorderLLM(name="recorder")
+    llm._set_script(
+        [
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "submit_answer", "arguments": "{}"},
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+        ]
+    )
+    agent = Agent(
+        llm=llm,
+        model="m",
+        stop_condition=stop_on_tool_name("submit_answer"),
+    )
+    result = asyncio.run(agent.run("go"))
+    # The very first response triggered the stop — no tool dispatch, no
+    # second LLM call. Single round-trip total.
+    assert len(llm._calls) == 1
+    assert result.tool_calls[0]["function"]["name"] == "submit_answer"
+
+
+def test_stop_on_finish_reason_aborts_truncated_runs():
+    from llmagpie.experimental.nodes.generators.stop import stop_on_finish_reason
+
+    llm = _RecorderLLM(name="recorder")
+    llm._set_script([_resp("got cut off", finish_reason="length"), _resp("never reached")])
+    agent = Agent(llm=llm, model="m", stop_condition=stop_on_finish_reason("length"))
+    result = asyncio.run(agent.run("go"))
+    assert result.content == "got cut off"
+    assert len(llm._calls) == 1
+
+
+def test_any_of_combines_multiple_conditions():
+    from llmagpie.experimental.nodes.generators.stop import (
+        any_of,
+        stop_on_content_match,
+        stop_on_finish_reason,
+    )
+
+    llm = _RecorderLLM(name="recorder")
+    llm._set_script([_resp("normal answer", finish_reason="length")])
+    agent = Agent(
+        llm=llm,
+        model="m",
+        stop_condition=any_of(
+            stop_on_content_match(r"DONE"),
+            stop_on_finish_reason("length"),
+        ),
+    )
+    asyncio.run(agent.run("go"))
+    assert len(llm._calls) == 1  # the length finish_reason matched
+
+
 def test_agent_raises_when_llm_yields_nothing():
     class _BrokenLLM(BaseLLMNode):
         async def async_call(self, model, messages, **kwargs):
