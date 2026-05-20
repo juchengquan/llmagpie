@@ -610,6 +610,113 @@ def test_agent_stream_raises_for_non_streaming_provider():
         asyncio.run(driver())
 
 
+# ---------------------------------------------------------------------------
+# Record/replay LLM fixtures.
+# ---------------------------------------------------------------------------
+
+
+def test_record_then_replay_round_trip(tmp_path):
+    from llmagpie.experimental.nodes.generators.record_replay import RecordReplayLLMNode
+
+    real = _RecorderLLM(name="real")
+    real._set_script([_resp("first answer"), _resp("second answer")])
+    tape = tmp_path / "tape.jsonl"
+
+    # First pass: record.
+    recorder = RecordReplayLLMNode(name="rec", inner=real, tape_path=tape, mode="record")
+
+    async def do_record():
+        a = await recorder._complete("m", [{"role": "user", "content": "q1"}])
+        b = await recorder._complete("m", [{"role": "user", "content": "q2"}])
+        return a.content, b.content
+
+    rec1, rec2 = asyncio.run(do_record())
+    assert (rec1, rec2) == ("first answer", "second answer")
+    assert tape.exists() and tape.read_text().count("\n") == 2
+
+    # Second pass: replay. Inner is a fresh no-script stub that would
+    # explode if asked for a response.
+    blank = _RecorderLLM(name="blank")
+    blank._set_script([])
+    player = RecordReplayLLMNode(name="play", inner=blank, tape_path=tape, mode="replay")
+
+    async def do_replay():
+        a = await player._complete("m", [{"role": "user", "content": "q1"}])
+        b = await player._complete("m", [{"role": "user", "content": "q2"}])
+        return a.content, b.content
+
+    rep1, rep2 = asyncio.run(do_replay())
+    assert (rep1, rep2) == ("first answer", "second answer")
+    # Inner was never touched in replay mode.
+    assert len(blank._calls) == 0
+
+
+def test_replay_unknown_request_raises_tape_miss(tmp_path):
+    from llmagpie.experimental.nodes.generators.record_replay import (
+        RecordReplayLLMNode,
+        TapeMissError,
+    )
+
+    real = _RecorderLLM(name="real")
+    real._set_script([_resp("only response")])
+    tape = tmp_path / "tape.jsonl"
+
+    rec = RecordReplayLLMNode(name="r", inner=real, tape_path=tape, mode="record")
+    asyncio.run(rec._complete("m", [{"role": "user", "content": "q1"}]))
+
+    blank = _RecorderLLM(name="blank")
+    blank._set_script([])
+    player = RecordReplayLLMNode(name="p", inner=blank, tape_path=tape, mode="replay")
+
+    with pytest.raises(TapeMissError) as ei:
+        asyncio.run(player._complete("m", [{"role": "user", "content": "new question"}]))
+    assert "tape" in str(ei.value).lower()
+    assert ei.value.request_preview["messages"][0]["content"] == "new question"
+
+
+def test_auto_mode_records_then_replays(tmp_path):
+    from llmagpie.experimental.nodes.generators.record_replay import RecordReplayLLMNode
+
+    real = _RecorderLLM(name="real")
+    real._set_script([_resp("once")])
+    tape = tmp_path / "tape.jsonl"
+
+    # First construction: tape doesn't exist → record mode.
+    n1 = RecordReplayLLMNode(name="n", inner=real, tape_path=tape, mode="auto")
+    asyncio.run(n1._complete("m", [{"role": "user", "content": "hi"}]))
+    assert tape.exists()
+
+    # Second construction: tape exists → replay mode. A NEW recorder
+    # with no script would otherwise blow up — replay shields it.
+    blank = _RecorderLLM(name="blank")
+    blank._set_script([])
+    n2 = RecordReplayLLMNode(name="n", inner=blank, tape_path=tape, mode="auto")
+    result = asyncio.run(n2._complete("m", [{"role": "user", "content": "hi"}]))
+    assert result.content == "once"
+    assert len(blank._calls) == 0
+
+
+def test_repeated_identical_requests_serve_distinct_recordings(tmp_path):
+    """Two identical-by-key requests in the tape should be served in
+    the order they were recorded, not collapsed."""
+    from llmagpie.experimental.nodes.generators.record_replay import RecordReplayLLMNode
+
+    real = _RecorderLLM(name="real")
+    real._set_script([_resp("answer A"), _resp("answer B")])
+    tape = tmp_path / "tape.jsonl"
+
+    rec = RecordReplayLLMNode(name="r", inner=real, tape_path=tape, mode="record")
+    asyncio.run(rec._complete("m", [{"role": "user", "content": "same"}]))
+    asyncio.run(rec._complete("m", [{"role": "user", "content": "same"}]))
+
+    blank = _RecorderLLM(name="blank")
+    blank._set_script([])
+    player = RecordReplayLLMNode(name="p", inner=blank, tape_path=tape, mode="replay")
+    a = asyncio.run(player._complete("m", [{"role": "user", "content": "same"}]))
+    b = asyncio.run(player._complete("m", [{"role": "user", "content": "same"}]))
+    assert (a.content, b.content) == ("answer A", "answer B")
+
+
 def test_agent_raises_when_llm_yields_nothing():
     class _BrokenLLM(BaseLLMNode):
         async def async_call(self, model, messages, **kwargs):
