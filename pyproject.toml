@@ -35,6 +35,9 @@ exp = [
 openai = [
     "openai>=1.50,<3.0",
 ]
+anthropic = [
+    "anthropic>=0.40,<1.0",
+]
 opentelemetry = [
     "opentelemetry-api>=1.30,<2",
     "opentelemetry-sdk>=1.30,<2",
@@ -67,12 +70,21 @@ check_untyped_defs = false
 source = ["libs/llmagpie"]
 branch = true
 parallel = true
-omit = ["libs/llmagpie/experimental/*"]
+omit = [
+    "libs/llmagpie/experimental/*",
+    # The OTEL decorator only executes its real branches when an
+    # OpenTelemetry collector is configured at runtime, which CI
+    # doesn't have. The EmptyWrapDecorator path is exercised by the
+    # rest of the suite via the @opentelemetry_tracer decorator on
+    # BaseNode._async_execute, but the WrapDecorator path needs a
+    # live tracer setup that's out of scope here.
+    "libs/llmagpie/core/opentelemetry/*",
+]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 75
+fail_under = 90
 exclude_lines = [
     "pragma: no cover",
     "raise NotImplementedError",

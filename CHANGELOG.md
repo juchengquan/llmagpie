@@ -8,6 +8,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Token streaming** — `BaseLLMNode.stream_complete()` async-generator
+  hook + `StreamChunk` type for incremental updates +
+  `BaseLLMNode.collect_stream()` reducer for assembling chunks back
+  into an `LLMResponse`. `OllamaChatNode` and `OpenAIChatNode`
+  implement it; `Agent.stream(user_message, ...)` yields chunks from
+  a single underlying call and (when memory is attached) persists
+  the assembled exchange after the stream completes.
+- **`OpenAIChatNode`** (`experimental/nodes/generators/openai_node.py`)
+  — the recommended OpenAI integration built on `BaseLLMNode`. Composes
+  with `Agent`, `MemoryNode`, `CachedLLMNode`, structured outputs, and
+  streaming. The legacy `OpenAIChatCompletionWithToolCall` stays in
+  place for backwards compatibility.
+- **`RecordReplayLLMNode`** (`experimental/nodes/generators/record_replay.py`)
+  — wrap any `BaseLLMNode` to record real provider exchanges to a
+  JSON-lines tape, then replay deterministically in CI. Three modes
+  (`replay` / `record` / `auto`). Raises `TapeMissError` with an
+  actionable request preview when a replay test drifts.
+- **Budget enforcement on `Agent`** — `max_tokens_per_run`,
+  `max_cost_per_run`, `cost_per_1k_tokens` price table, and
+  `BudgetExceededError`. Checked after every provider round-trip so
+  tool-call loops can't silently overspend. `Agent.cost_of(usage)`
+  is exposed for arbitrary `LLMUsage` aggregations.
+- **Semantic stop conditions** — `BaseLLMNode.stop_condition` plumbed
+  through the tool-call loop, with factory helpers in
+  `experimental/nodes/generators/stop.py`: `stop_on_content_match`,
+  `stop_on_tool_name`, `stop_on_finish_reason`, and `any_of`.
+- Three runnable example scripts under `_examples/agents/` (chatbot,
+  multi-turn memory, tools+budget+stop+cost reporting), wired into
+  the test suite via the example-discovery runner.
+- `Agent` (`experimental/agent.py`) — high-level wrapper that composes
+  `BaseLLMNode` with optional memory, cache, tools, and
+  structured-output validation into a single `run(user_message, ...)`
+  entry point. Returns an `AgentResult` with content, tool calls,
+  cumulative token usage (summed across tool-call rounds), parsed
+  schema instance (when `response_schema` is set), and the raw
+  `LLMResponse`. Composition order: tools -> memory -> cache -> raw
+  provider, so the cache key includes loaded history and is stable
+  across processes. Includes `clear_history(thread_id)` for resetting
+  per-thread memory. 12 regression tests covering plain runs, memory
+  persistence + thread isolation, cache short-circuits, tool-call
+  loops, structured-output self-repair, custom params, and
+  zero-yield provider misuse.
 - `BaseConnectable` exported at the top level
   (`from llmagpie import BaseConnectable`) so users can type-hint
   "any connectable" without reaching into the internal namespace. Added
@@ -18,8 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   weekly schedule + push/PR triggers).
 - GitHub Actions CI: lint (ruff), typecheck (mypy), test matrix (Python
   3.12 / 3.13), coverage upload, and wheel/sdist build smoke test.
-- Coverage threshold: `[tool.coverage.report] fail_under = 75`. Pytest
+- Coverage threshold: `[tool.coverage.report] fail_under = 90`. Pytest
   exits non-zero if total branch coverage drops below the threshold.
+  `[tool.coverage.run] omit` now excludes `core/opentelemetry/*` —
+  the OTEL decorator's real branches only fire with a configured
+  collector, which CI doesn't run.
 - Subprocess coverage merging in `tests/test_examples.py`: examples
   run under `coverage run --parallel-mode` when pytest-cov is active,
   so the integration runs contribute to the same report. Pushed

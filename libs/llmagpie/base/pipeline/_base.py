@@ -237,6 +237,95 @@ class _BaseTypePipeline(BaseConnectable):
                 _input_keys=_in_keys,
             )
 
+    def to_mermaid(self, direction: str = "LR") -> str:
+        """Render the pipeline's DAG as a Mermaid flowchart string.
+
+        The returned string is the body of a ``mermaid`` markdown code
+        block. Each node is labeled with its ``name`` and ``connectable_type``;
+        each edge is labeled with the comma-joined ``output → input`` key
+        mapping.
+
+        Args:
+            direction: Mermaid layout direction — one of ``"LR"`` (left to
+                right, default), ``"TB"`` (top to bottom), ``"RL"``, ``"BT"``.
+
+        Returns:
+            A multi-line string starting with ``flowchart <direction>``.
+            Ready to drop into a Markdown ``mermaid`` fence.
+        """
+        if direction not in {"LR", "RL", "TB", "BT"}:
+            raise ValueError(f"direction must be LR/RL/TB/BT; got {direction!r}")
+
+        lines = [f"flowchart {direction}"]
+        node_ids: dict[str, str] = {}
+        for i, nid in enumerate(self.graph.nodes):
+            obj = self.graph.nodes[nid]["_obj"]
+            alias = f"n{i}"
+            node_ids[nid] = alias
+            kind = (
+                obj.connectable_type.name
+                if hasattr(obj.connectable_type, "name")
+                else str(obj.connectable_type)
+            )
+            lines.append(f'    {alias}["{obj.name}<br/><i>{kind}</i>"]')
+
+        for src, dst, edge in self.graph.edges(data=True):
+            out_keys = edge.get("_output_keys", [])
+            in_keys = edge.get("_input_keys", [])
+            if out_keys and in_keys:
+                pairs = ", ".join(f"{o}→{i}" for o, i in zip(out_keys, in_keys, strict=False))
+                lines.append(f"    {node_ids[src]} -->|{pairs}| {node_ids[dst]}")
+            else:
+                lines.append(f"    {node_ids[src]} --> {node_ids[dst]}")
+
+        return "\n".join(lines)
+
+    def to_graphviz(self, rankdir: str = "LR") -> str:
+        """Render the pipeline's DAG as Graphviz DOT source.
+
+        Args:
+            rankdir: Graphviz layout direction — ``"LR"`` (default), ``"TB"``,
+                ``"RL"``, ``"BT"``.
+
+        Returns:
+            A multi-line DOT string. Render with ``dot -Tpng pipe.dot``
+            or any Graphviz viewer.
+        """
+        if rankdir not in {"LR", "RL", "TB", "BT"}:
+            raise ValueError(f"rankdir must be LR/RL/TB/BT; got {rankdir!r}")
+
+        def _escape(label: str) -> str:
+            return label.replace("\\", "\\\\").replace('"', '\\"')
+
+        lines = [
+            f'digraph "{_escape(self.name)}" {{',
+            f"    rankdir={rankdir};",
+            "    node [shape=box, style=rounded];",
+        ]
+        node_ids: dict[str, str] = {}
+        for i, nid in enumerate(self.graph.nodes):
+            obj = self.graph.nodes[nid]["_obj"]
+            alias = f"n{i}"
+            node_ids[nid] = alias
+            kind = (
+                obj.connectable_type.name
+                if hasattr(obj.connectable_type, "name")
+                else str(obj.connectable_type)
+            )
+            lines.append(f'    {alias} [label="{_escape(obj.name)}\\n({kind})"];')
+
+        for src, dst, edge in self.graph.edges(data=True):
+            out_keys = edge.get("_output_keys", [])
+            in_keys = edge.get("_input_keys", [])
+            if out_keys and in_keys:
+                pairs = ", ".join(f"{o}→{i}" for o, i in zip(out_keys, in_keys, strict=False))
+                lines.append(f'    {node_ids[src]} -> {node_ids[dst]} [label="{_escape(pairs)}"];')
+            else:
+                lines.append(f"    {node_ids[src]} -> {node_ids[dst]};")
+
+        lines.append("}")
+        return "\n".join(lines)
+
     def _flatten_history_object_store(self, session_id: str) -> InternalDictState:
         res = {
             session_id: {
