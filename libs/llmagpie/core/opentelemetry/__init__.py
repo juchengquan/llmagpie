@@ -1,11 +1,8 @@
 from ._wrapper import (
-    opentelemetry_tracer, OTEL_ENABLED,
-    trace, context  # type: ignore
+    OTEL_ENABLED,
+    context,
+    opentelemetry_tracer,
+    trace,  # type: ignore
 )
 
-
-__all__ = [
-    "opentelemetry_tracer", "OTEL_ENABLED",
-    "trace", "context"
-  
-]
+__all__ = ["OTEL_ENABLED", "context", "opentelemetry_tracer", "trace"]

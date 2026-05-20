@@ -4,7 +4,6 @@ easy to break without noticing."""
 import asyncio
 
 import pytest
-
 from llmagpie.base.connectable import BaseConnectable
 from llmagpie.base.enum import ConnectableType
 from llmagpie.base.logging.logging_wrapper import log_output
@@ -14,6 +13,7 @@ from llmagpie.base.utils.async_to_sync import exec_generator_in_event_loop
 
 class _Concrete(BaseConnectable):
     """Minimal concrete BaseConnectable for state-isolation tests."""
+
     connectable_type: ConnectableType = ConnectableType.BASENODE
 
     def _validate(self):
@@ -93,11 +93,13 @@ def test_make_node_from_function_runs():
 # by the pipeline's _collect_*_tasks paths.
 # ---------------------------------------------------------------------------
 
+
 def _make_passthrough(name: str = "pass"):
     @MakeNode.from_function(name=name, outputs={"value": str})
     def _node(value: str) -> str:
         """Pass through."""
         return value
+
     return _node
 
 
@@ -118,6 +120,7 @@ def test_precheck_returns_none_when_condition_false():
 # `max_iteration_limit` is hit, not silently spin forever.
 # ---------------------------------------------------------------------------
 
+
 def test_iteration_counter_raises_at_limit():
     node = _make_passthrough()
     node.max_iteration_limit = 2
@@ -133,6 +136,7 @@ def test_iteration_counter_raises_at_limit():
 # `clean_states` in a `finally` immediately after `return async_result`, so
 # state was wiped before the generator was iterated.)
 # ---------------------------------------------------------------------------
+
 
 def test_async_invoke_round_trip_and_cleanup_order():
     from llmagpie import BasePipeline
@@ -163,6 +167,7 @@ def test_async_invoke_round_trip_and_cleanup_order():
 # ThreadPoolExecutor. The only multi-threaded code in the library.
 # ---------------------------------------------------------------------------
 
+
 def test_tools_node_fires_each_tool():
     from llmagpie.base.tools import ToolsNode
 
@@ -187,6 +192,7 @@ def test_tools_node_fires_each_tool():
 # Compile guard: pipeline mutations after compile() must be rejected, or
 # the cached schema would silently diverge from the graph.
 # ---------------------------------------------------------------------------
+
 
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline

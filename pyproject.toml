@@ -50,6 +50,34 @@ Issues = "https://github.com/juchengquan/llmagpie/issues"
 [dependency-groups]
 dev = [
     "pytest>=9.0",
+    "ruff>=0.15.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["_examples"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line too long (we already use 100; remaining cases are URLs/strings)
+    "UP047", # PEP 695 generic function syntax (too aggressive)
+    "B008",  # function call in default arg (pydantic Field() is the canonical pattern)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "B007",  # unused loop variable (test fixtures often have these)
+    "F811",  # redefinition (test parametrisation sometimes shadows)
 ]
 
 [build-system]

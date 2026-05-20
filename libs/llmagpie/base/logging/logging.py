@@ -1,16 +1,17 @@
-import os
-import pytz
-import logging
 import datetime
-import pathlib
+import logging
+import os
 from logging.handlers import TimedRotatingFileHandler
-from typing import List, Optional, cast
+from typing import cast
+
+import pytz
 
 
 class CustomFormatter(logging.Formatter):
     """
     Class to format log record timestamp to Singapore time and utc format.
     """
+
     def converter(self, timestamp: int):
         """Method to convert epoch time to Singapore timezone.
 
@@ -21,9 +22,9 @@ class CustomFormatter(logging.Formatter):
             datetime: datetime formatted to Singapore timezone.
         """
         dt = datetime.datetime.fromtimestamp(timestamp, tz=pytz.UTC)
-        return dt.astimezone(pytz.timezone('Singapore'))
+        return dt.astimezone(pytz.timezone("Singapore"))
 
-    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None):
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None):
         """Method to format log record timestamp to provided format if specified else iso format.
 
         Args:
@@ -33,18 +34,18 @@ class CustomFormatter(logging.Formatter):
         Returns:
             str: formatted timestamp.
         """
-        dt = self.converter( cast(int, record.created) )
+        dt = self.converter(cast(int, record.created))
         if datefmt:
             formatted_timestamp = dt.strftime(datefmt)
         else:
             try:
-                formatted_timestamp = dt.isoformat(timespec='milliseconds')
+                formatted_timestamp = dt.isoformat(timespec="milliseconds")
             except TypeError:
                 formatted_timestamp = dt.isoformat()
         return formatted_timestamp
 
 
-def DefaultLogger(name: str, handlers: Optional[List[logging.Handler]] = None, *args, **kwargs):
+def DefaultLogger(name: str, handlers: list[logging.Handler] | None = None, *args, **kwargs):
     """
     Function to initialize CustomLogger object. Calls logging.getLogger underneath the hood.
 
@@ -59,7 +60,7 @@ def DefaultLogger(name: str, handlers: Optional[List[logging.Handler]] = None, *
     logger.setLevel(logging.INFO)
 
     if not logger.hasHandlers():
-        for handler in (handlers or []):
+        for handler in handlers or []:
             logger.addHandler(handler)
     if not flag:
         logger.debug(f"Logger initialized: {name}")
@@ -71,9 +72,8 @@ LOGGING_FORMAT = '[%(asctime)s] name="%(name)s" level=%(levelname)s filename="%(
 Formatter = CustomFormatter(LOGGING_FORMAT, datefmt="%Y-%m-%d %H:%M:%S,%f")
 
 
-def get_or_create_logger(logger_name: str = "default", file_path: Optional[str] = None):
-    """Get the logger with name or create if it does not exist.
-    """
+def get_or_create_logger(logger_name: str = "default", file_path: str | None = None):
+    """Get the logger with name or create if it does not exist."""
     # Setup streamhandler which outputs to console
     streamhandler = logging.StreamHandler()
     streamhandler.setLevel(logging.INFO)
@@ -83,13 +83,9 @@ def get_or_create_logger(logger_name: str = "default", file_path: Optional[str] 
         log_path = os.getenv("LOG_DIR")  # pathlib.Path().resolve().parent / "logs")
         if log_path:
             os.makedirs(log_path, exist_ok=True)
-            file_path = f'{log_path}/info.log'
-        
-            filehandler = TimedRotatingFileHandler(
-                filename=file_path,
-                interval=1,
-                when="d"
-            )
+            file_path = f"{log_path}/info.log"
+
+            filehandler = TimedRotatingFileHandler(filename=file_path, interval=1, when="d")
             filehandler.setLevel(logging.INFO)
             filehandler.setFormatter(Formatter)
 
@@ -98,4 +94,3 @@ def get_or_create_logger(logger_name: str = "default", file_path: Optional[str] 
             logger = DefaultLogger(name=logger_name, handlers=[streamhandler])
         return logger
     return DefaultLogger(name=logger_name, handlers=[streamhandler])
-            

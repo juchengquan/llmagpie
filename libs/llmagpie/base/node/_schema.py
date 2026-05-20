@@ -1,14 +1,13 @@
-from inspect import getfullargspec, signature, _empty
+from collections.abc import Callable
+from inspect import _empty, getfullargspec, signature
+from typing import Annotated, Any, get_origin
+
 from pydantic import BaseModel, ConfigDict, Field, create_model
-from typing import (
-    cast, get_origin,
-    Type, Callable, Any, Type, Dict, Annotated
-)
 
 
-def _strip_titles(schema: Dict[str, Any], model) -> None:
-    for prop in schema.get('properties', {}).values():
-        prop.pop('title', None)
+def _strip_titles(schema: dict[str, Any], model) -> None:
+    for prop in schema.get("properties", {}).values():
+        prop.pop("title", None)
 
 
 # Pydantic >=2.11 dropped support for passing a class as `__config__` to
@@ -20,10 +19,7 @@ _SCHEMA_CONFIG: ConfigDict = ConfigDict(
 )
 
 
-def create_schema_from_types(
-    name: str,
-    types: Dict
-) -> Type[BaseModel]:
+def create_schema_from_types(name: str, types: dict) -> type[BaseModel]:
     """Create schema from types.
 
     Args:
@@ -35,8 +31,8 @@ def create_schema_from_types(
     Returns:
         BaseModel
     """
-    fields: Dict = {}
-    for (idx, p_name), p_val in zip(enumerate(types.keys()), types.values()):
+    fields: dict = {}
+    for p_name, p_val in types.items():
         # if in_class and idx == 0:
         #     continue
         p_type = p_val
@@ -46,14 +42,15 @@ def create_schema_from_types(
             p_type = p_type.__origin__
 
         p_field = Field(default=None, description=p_description)
-    
+
         fields[p_name] = (p_type, p_field)
     return create_model(name + "_Output", __config__=_SCHEMA_CONFIG, **fields)  # type: ignore
+
 
 def create_schema_from_function(
     function: Callable,
     in_class: bool = False,
-) -> Type[BaseModel]:
+) -> type[BaseModel]:
     """Create schema from function.
 
     Args:
@@ -67,16 +64,16 @@ def create_schema_from_function(
         BaseModel
     """
     function_name = function.__name__ + "_Input"
-    
+
     args = getfullargspec(function)
     if args.varargs or args.varkw:
         raise ValueError("arg of kwargs are not allowed in function definition.")
     # assert "return" in args.annotations, "Return value type is not declared."
-    
+
     parameters = signature(function).parameters
-    
-    fields: Dict = {}
-    for (idx, p_name), p_val in zip(enumerate(parameters.keys()), parameters.values()):
+
+    fields: dict = {}
+    for idx, (p_name, p_val) in enumerate(parameters.items()):
         if in_class and idx == 0:
             continue
         p_type = p_val.annotation
@@ -96,7 +93,7 @@ def create_schema_from_function(
         else:
             # Field with pydantic.Field as default value
             p_field = Field(default=p_default, description=p_description)
-    
+
         fields[p_name] = (p_type, p_field)
 
     return create_model(function_name, __config__=_SCHEMA_CONFIG, **fields)  # type: ignore

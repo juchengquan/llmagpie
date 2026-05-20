@@ -1,6 +1,7 @@
 import logging
 from asyncio import FIRST_COMPLETED, Task, create_task, wait
-from typing import AsyncIterable, AsyncIterator, Collection, TypeVar
+from collections.abc import AsyncIterable, AsyncIterator, Collection
+from typing import TypeVar
 
 _T = TypeVar("_T")
 _logger = logging.getLogger(__name__)

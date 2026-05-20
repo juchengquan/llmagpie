@@ -24,7 +24,6 @@ class SingleDAG(DiGraph):
             raise ValueError("The graph has no head node!")
         if len(self.tail_nodes) < 1:
             raise ValueError("The graph has no end node!")
-   
 
     def _validate_edges_circular(self):
         assert is_directed_acyclic_graph(self) is True, "Graph must be directed acyclic."

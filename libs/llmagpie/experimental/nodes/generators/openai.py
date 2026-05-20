@@ -1,21 +1,22 @@
 import json
-from httpx import AsyncClient, Client
+
+# typing
+from typing import Any
+
+from httpx import Client
+from llmagpie.base.node import BaseNode, MakeNode
+from llmagpie.base.tools import ToolsNode
 from openai import OpenAI
 
-from llmagpie.base.tools import ToolsNode
-from llmagpie.base.node import MakeNode, BaseNode
-# typing
-from typing import List, Dict, Any, Optional
 
-
-@MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
+@MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=list[dict]))
 class OpenAIChatCompletionWithToolCall(BaseNode):
     client: OpenAI
-    tools_node: Optional[ToolsNode] = None
-    
+    tools_node: ToolsNode | None = None
+
     num_tool_calls: int = 0
     max_num_tool_calls: int = 3
-    
+
     def __init__(
         self,
         api_key: str,
@@ -35,13 +36,14 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             timeout (int, optional): The timeout for API requests. Defaults to 60.
         """
         client = OpenAI(
-            api_key = api_key,
-            base_url = base_url,
-            http_client = Client(verify=ssl_verify, timeout=timeout)
+            api_key=api_key,
+            base_url=base_url,
+            http_client=Client(verify=ssl_verify, timeout=timeout),
         )
-        super().__init__(client=client, *args, **kwargs)
+        kwargs["client"] = client
+        super().__init__(*args, **kwargs)
 
-    def bind_tools(self, tools: List[BaseNode]):
+    def bind_tools(self, tools: list[BaseNode]):
         self.tools_node = ToolsNode(name=self.name + "_ToolsNode", tools=tools)
         return self
 
@@ -69,25 +71,23 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             # stream=stream,
         )
         if self.tools_node:
-            call_kwargs.update(dict(
-                tools=self.tools_node._generate_openai_schema()    
-            ))
+            call_kwargs.update(dict(tools=self.tools_node._generate_openai_schema()))
         response = self.client.chat.completions.create(**call_kwargs)  # type: ignore
         post_response = _get_llm_answer(response)
 
         if self.tools_node:
             post_response["tool_calls"] = (
-                await self.tools_node.async_call_(tool_calls_list=post_response["tool_calls"])).get("tool_calls_list", []
-            )
+                await self.tools_node.async_call_(tool_calls_list=post_response["tool_calls"])
+            ).get("tool_calls_list", [])
         else:
             post_response["tool_calls"] = []
-        
+
         return post_response
 
     def _add_messages_from_tools(
         self,
         post_response,
-        messages,  
+        messages,
     ):
         """
         Adds tool call messages to the conversation history.
@@ -100,21 +100,28 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         1. A message representing the tool call request from the LLM.
         2. A message representing the tool's response to the call.
         """
-        messages.append({
-            "role": post_response["role"],
-            "tool_calls": [{
-                "id": ele["id"],
-                "type": ele["type"],
-                "function": ele["function"],
-            } for ele in post_response["tool_calls"]]
-        })
+        messages.append(
+            {
+                "role": post_response["role"],
+                "tool_calls": [
+                    {
+                        "id": ele["id"],
+                        "type": ele["type"],
+                        "function": ele["function"],
+                    }
+                    for ele in post_response["tool_calls"]
+                ],
+            }
+        )
         for ele in post_response["tool_calls"]:
-            messages.append({
-                "role": "tool",
-                "content": json.dumps(ele["output"]),
-                "tool_call_id": ele["id"],
-            })
-        
+            messages.append(
+                {
+                    "role": "tool",
+                    "content": json.dumps(ele["output"]),
+                    "tool_call_id": ele["id"],
+                }
+            )
+
         # only for llama <- parallel tool calling
         # for ele in post_response["tool_calls"]:
         #     messages.append({
@@ -130,11 +137,11 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
         #         "content": json.dumps(ele["output"]),
         #         "tool_call_id": ele["id"],
         #     })
-    
+
     async def async_call(
         self,
         model: str,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         direct_tool_outputs: bool = False,
         # stream: bool = False,
     ):
@@ -153,7 +160,9 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
                 - tool_calls (List[Dict]): A list of tool calls, each containing the tool's ID, type, and function details.
         """
         if direct_tool_outputs and not self.tools_node:
-            self.logger.warning("Tools are not bound but `direct_tool_outputs` is set True.... omit")
+            self.logger.warning(
+                "Tools are not bound but `direct_tool_outputs` is set True.... omit"
+            )
             direct_tool_outputs = False
 
         # Reset per-invocation counter so the limit applies within a single
@@ -168,18 +177,16 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             # compose new call to LLM
             while self.num_tool_calls < self.max_num_tool_calls and post_response["tool_calls"]:
                 yield post_response
-                self._add_messages_from_tools(
-                    post_response, messages
-                )
+                self._add_messages_from_tools(post_response, messages)
                 post_response = await self._single_call(model, messages)
                 self.num_tool_calls += 1
             yield post_response
 
 
-@MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=List[Dict]))
+@MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=list[dict]))
 class OpenAIChatCompletionStream(BaseNode):
     client: OpenAI
-    tools_node: Optional[ToolsNode] = None
+    tools_node: ToolsNode | None = None
 
     def __init__(
         self,
@@ -191,21 +198,22 @@ class OpenAIChatCompletionStream(BaseNode):
         **kwargs,
     ):
         client = OpenAI(
-            api_key = api_key,
-            base_url = base_url,
-            http_client = Client(verify=ssl_verify, timeout=timeout)
+            api_key=api_key,
+            base_url=base_url,
+            http_client=Client(verify=ssl_verify, timeout=timeout),
         )
 
-        super().__init__(client=client, *args, **kwargs)
+        kwargs["client"] = client
+        super().__init__(*args, **kwargs)
 
-    def bind_tools(self, tools: List[BaseNode]):
+    def bind_tools(self, tools: list[BaseNode]):
         self.tools_node = ToolsNode(tools=tools)
         return self
 
     async def async_call(
         self,
         model: str,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         stream: bool = False,
     ):
         call_kwargs = dict(
@@ -214,15 +222,14 @@ class OpenAIChatCompletionStream(BaseNode):
             stream=stream,
         )
         if self.tools_node:
-            call_kwargs.update(dict(
-                tools=self.tools_node._generate_openai_schema()    
-            ))
-            
+            call_kwargs.update(dict(tools=self.tools_node._generate_openai_schema()))
+
         response = self.client.chat.completions.create(**call_kwargs)  # type: ignore
-        
+
         post_response = get_llm_answer_stream(response)
         return post_response
-    
+
+
 def get_llm_answer_stream(response):
     import copy
 
@@ -236,10 +243,8 @@ def get_llm_answer_stream(response):
     func_def = copy.deepcopy(p_def)
 
     tool_list = []
-    res: Dict[str, Any] = {
-        "content": ""
-    }
-    for i, chunk in enumerate(response):
+    res: dict[str, Any] = {"content": ""}
+    for chunk in response:
         if not _model_name:
             _model_name = chunk.model
         if not _id:
@@ -275,9 +280,11 @@ def get_llm_answer_stream(response):
 
                 func_def["id"] = tool_call.id
                 # func_def["index"] = tool_call.index
-                func_def["type"] = tool_call.type # by default is `function`
+                func_def["type"] = tool_call.type  # by default is `function`
                 func_def["function"]["name"] = tool_call.function.name
-            func_def["function"]["arguments"] += tool_call.function.arguments if tool_call.function.arguments else ""
+            func_def["function"]["arguments"] += (
+                tool_call.function.arguments if tool_call.function.arguments else ""
+            )
 
     # check the last `finish_reason`
     if finish_reason not in ["length", "content_filter"]:
@@ -291,14 +298,12 @@ def get_llm_answer_stream(response):
 
 
 def _get_llm_answer(response):
-    res = {}
-
     choice = response.choices[0]
     finish_reason = choice.finish_reason
     _tool_calls = choice.message.tool_calls if choice.message.tool_calls else []
 
     tool_list = []
-    for i, item in enumerate(_tool_calls):
+    for item in _tool_calls:
         _t = item.dict()
         # _t["index"] = i
         tool_list.append(_t)
@@ -309,5 +314,5 @@ def _get_llm_answer(response):
         "role": choice.message.role,
         "content": choice.message.content if choice.message.content else "",
         "finish_reason": finish_reason,
-        "tool_calls": tool_list
+        "tool_calls": tool_list,
     }

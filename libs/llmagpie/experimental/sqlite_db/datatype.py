@@ -1,4 +1,4 @@
-from sqlalchemy import String, LargeBinary, Column, Double, Integer
+from sqlalchemy import Column, Double, Integer, LargeBinary, String
 from sqlalchemy.orm import DeclarativeBase, Mapped
 
 

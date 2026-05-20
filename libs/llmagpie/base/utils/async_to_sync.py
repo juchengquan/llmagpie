@@ -1,12 +1,15 @@
 from asyncio import AbstractEventLoop
-from typing import Any, Generator, AsyncGenerator
-from llmagpie.base.utils.thread import AsyncThread
+from collections.abc import AsyncGenerator, Generator
+from typing import Any
 
+from llmagpie.base.utils.thread import AsyncThread
 
 _DONE = object()  # sentinel for StopAsyncIteration
 
 
-def exec_generator_in_event_loop(async_generator: AsyncGenerator, loop: AbstractEventLoop) -> Generator:
+def exec_generator_in_event_loop(
+    async_generator: AsyncGenerator, loop: AbstractEventLoop
+) -> Generator:
     ait = async_generator.__aiter__()
 
     async def _get_next() -> Any:
@@ -26,7 +29,9 @@ def exec_generator_in_event_loop(async_generator: AsyncGenerator, loop: Abstract
         yield result
 
 
-def exec_generator_in_separated_thread(async_generator: AsyncGenerator, loop: AbstractEventLoop) -> Generator:
+def exec_generator_in_separated_thread(
+    async_generator: AsyncGenerator, loop: AbstractEventLoop
+) -> Generator:
     thread = AsyncThread(coro=async_generator, loop=loop)
     thread.start()
     thread.join()
@@ -37,4 +42,3 @@ def exec_generator_in_separated_thread(async_generator: AsyncGenerator, loop: Ab
         thread = AsyncThread(coro=async_generator, loop=loop)
         thread.start()
         thread.join()
-
