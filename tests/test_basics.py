@@ -194,6 +194,58 @@ def test_tools_node_fires_each_tool():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Pipeline visualization: Mermaid + Graphviz exports.
+# ---------------------------------------------------------------------------
+
+
+def _two_node_pipeline():
+    """Helper: tiny linear pipeline a -> b."""
+    from llmagpie import BasePipeline
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _A(BaseNode):
+        async def async_call(self, name: str):
+            return {"out": name}
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _B(BaseNode):
+        async def async_call(self, out: str):
+            return {"out": out.upper()}
+
+    a, b = _A(name="a"), _B(name="b")
+    pipe = BasePipeline(name="pipe", nodes=[a, b])
+    (a >> "out") >> ("out" >> b)
+    pipe.compile()
+    return pipe
+
+
+def test_pipeline_to_mermaid_contains_nodes_and_edge():
+    pipe = _two_node_pipeline()
+    diagram = pipe.to_mermaid()
+    assert diagram.startswith("flowchart LR")
+    assert "a<br/>" in diagram and "b<br/>" in diagram
+    # The edge label encodes the key mapping.
+    assert "out→out" in diagram
+
+
+def test_pipeline_to_graphviz_contains_nodes_and_edge():
+    pipe = _two_node_pipeline()
+    dot = pipe.to_graphviz()
+    assert dot.startswith("digraph ")
+    assert "rankdir=LR" in dot
+    assert "->" in dot
+    assert "out→out" in dot
+
+
+def test_pipeline_visualization_rejects_bad_direction():
+    pipe = _two_node_pipeline()
+    with pytest.raises(ValueError, match="direction must be"):
+        pipe.to_mermaid(direction="diagonal")
+    with pytest.raises(ValueError, match="rankdir must be"):
+        pipe.to_graphviz(rankdir="diagonal")
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
