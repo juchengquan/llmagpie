@@ -297,6 +297,76 @@ def test_batch_invoke_return_exceptions_captures_failures():
     assert results[2][-1].value == {"out": "fine"}
 
 
+# ---------------------------------------------------------------------------
+# Retry / fallback decorators.
+# ---------------------------------------------------------------------------
+
+
+def test_with_retry_succeeds_after_transient_failures():
+    import asyncio
+
+    from llmagpie.base.utils.retry import with_retry
+
+    calls = {"n": 0}
+
+    @with_retry(max_attempts=4, backoff_base=0.0, jitter=False)
+    async def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ValueError(f"transient {calls['n']}")
+        return "ok"
+
+    assert asyncio.run(flaky()) == "ok"
+    assert calls["n"] == 3
+
+
+def test_with_retry_raises_after_exhaustion():
+    import asyncio
+
+    from llmagpie.base.utils.retry import with_retry
+
+    @with_retry(max_attempts=2, backoff_base=0.0, jitter=False)
+    async def always_fails():
+        raise ValueError("permanent")
+
+    with pytest.raises(ValueError, match="permanent"):
+        asyncio.run(always_fails())
+
+
+def test_with_retry_respects_should_retry_predicate():
+    import asyncio
+
+    from llmagpie.base.utils.retry import with_retry
+
+    calls = {"n": 0}
+
+    @with_retry(
+        max_attempts=5, backoff_base=0.0, jitter=False, should_retry=lambda e: "retry-me" in str(e)
+    )
+    async def picky():
+        calls["n"] += 1
+        raise ValueError("do not retry")
+
+    with pytest.raises(ValueError, match="do not retry"):
+        asyncio.run(picky())
+    assert calls["n"] == 1  # no retries because predicate said no
+
+
+def test_with_fallback_invokes_fallback_on_failure():
+    import asyncio
+
+    from llmagpie.base.utils.retry import with_fallback
+
+    async def fallback(x):
+        return f"fallback({x})"
+
+    @with_fallback(fallback)
+    async def primary(x):
+        raise RuntimeError("primary broken")
+
+    assert asyncio.run(primary(7)) == "fallback(7)"
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
