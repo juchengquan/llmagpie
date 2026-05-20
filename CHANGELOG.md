@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Agent` (`experimental/agent.py`) — high-level wrapper that composes
+  `BaseLLMNode` with optional memory, cache, tools, and
+  structured-output validation into a single `run(user_message, ...)`
+  entry point. Returns an `AgentResult` with content, tool calls,
+  cumulative token usage (summed across tool-call rounds), parsed
+  schema instance (when `response_schema` is set), and the raw
+  `LLMResponse`. Composition order: tools -> memory -> cache -> raw
+  provider, so the cache key includes loaded history and is stable
+  across processes. Includes `clear_history(thread_id)` for resetting
+  per-thread memory. 12 regression tests covering plain runs, memory
+  persistence + thread isolation, cache short-circuits, tool-call
+  loops, structured-output self-repair, custom params, and
+  zero-yield provider misuse.
 - `BaseConnectable` exported at the top level
   (`from llmagpie import BaseConnectable`) so users can type-hint
   "any connectable" without reaching into the internal namespace. Added
