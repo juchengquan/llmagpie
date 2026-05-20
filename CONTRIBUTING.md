@@ -22,11 +22,15 @@ uv run ruff check libs/ tests/        # lint
 uv run ruff format --check libs/ tests/   # format drift
 uv run mypy libs/llmagpie             # type check
 uv run pytest                          # 25 tests, ~16s
-uv run pytest --cov                    # with coverage (fails if <60%)
+uv run pytest --cov                    # with coverage (fails if <75%)
 ```
 
-`ruff format` (without `--check`) auto-formats. Run it before
-committing so CI doesn't bounce on a whitespace nit.
+`ruff format` (without `--check`) auto-formats. Easier: install the
+pre-commit hooks once and they run automatically on every commit:
+
+```bash
+uv run pre-commit install
+```
 
 ## Tests
 

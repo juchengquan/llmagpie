@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Python deps (resolves against pyproject.toml + uv.lock)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      # Bundle related ecosystems so PR review isn't 1-PR-per-package.
+      opentelemetry:
+        patterns:
+          - "opentelemetry-*"
+      types:
+        patterns:
+          - "types-*"
+          - "*-stubs"
+
+  # GitHub Actions versions in .github/workflows/
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"

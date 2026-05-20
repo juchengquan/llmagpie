@@ -10,9 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - GitHub Actions CI: lint (ruff), typecheck (mypy), test matrix (Python
   3.12 / 3.13), coverage upload, and wheel/sdist build smoke test.
-- Coverage threshold: `[tool.coverage.report] fail_under = 60`. Pytest
-  exits non-zero (and CI fails) if total branch coverage drops below
-  60%.
+- Coverage threshold: `[tool.coverage.report] fail_under = 75`. Pytest
+  exits non-zero if total branch coverage drops below the threshold.
+- Subprocess coverage merging in `tests/test_examples.py`: examples
+  run under `coverage run --parallel-mode` when pytest-cov is active,
+  so the integration runs contribute to the same report. Pushed
+  measured coverage from 60% → 77%.
+- `.pre-commit-config.yaml` with ruff check + format and the standard
+  pre-commit-hooks (trailing whitespace, EOF newline, YAML/TOML lint,
+  merge-conflict marker check, 500 KB file-size cap). `pre-commit`
+  added to the `dev` dep group.
+- `.github/dependabot.yml`: weekly dependency-update PRs for both
+  Python deps (uv ecosystem) and GitHub Actions versions. Grouped:
+  opentelemetry-* in one PR, types-*/`*-stubs` in another.
+- Docstrings for the five most user-facing entry points:
+  `BaseConnectable.invoke`, `BaseConnectable.async_invoke`,
+  `BaseConnectable.precheck`, `BaseConnectable.clean_states`,
+  `BasePipeline.compile`, `BasePipeline.add_edge`.
 - `pytest-cov` and `mypy` to the `dev` dependency group; matching
   `[tool.coverage.*]` and `[tool.mypy]` configuration in
   `pyproject.toml`.

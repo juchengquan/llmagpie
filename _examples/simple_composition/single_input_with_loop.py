@@ -1,7 +1,7 @@
 import asyncio
 import time
 from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import BasePipeline 
+from llmagpie.base.pipeline import BasePipeline
 
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EntryNode(BaseNode):
@@ -56,9 +56,9 @@ if __name__ == "__main__":
         response = pipe.invoke(inputs=inputs)
         for ele in response:
             print(">>>", ele)
-    
+
     asyncio.run(shell())
-    
+
     # response = pipe.invoke(inputs=inputs)
     # for ele in response:
     #     print(ele)

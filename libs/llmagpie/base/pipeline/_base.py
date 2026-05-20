@@ -45,6 +45,27 @@ class _BaseTypePipeline(BaseConnectable):
         self.add_nodes(self.nodes)
 
     def compile(self, *args, **kwargs) -> Self:
+        """Validate the DAG and freeze the pipeline's external input/output schema.
+
+        Must be called once after all nodes and edges are wired and before
+        any :meth:`invoke` / :meth:`async_invoke` call. After ``compile()``:
+
+        - ``func_schema.external.input`` is the union of head-node inputs,
+          namespaced as ``"<NodeName>.<key>"``. ``invoke(inputs=...)`` must
+          use these prefixed keys.
+        - ``func_schema.external.output`` is the union of tail-node outputs,
+          also namespaced.
+        - The graph is frozen: subsequent calls to :meth:`add_nodes`,
+          :meth:`add_edge`, or :meth:`_add_node` raise ``RuntimeError``.
+
+        Returns ``self`` for fluent chaining.
+
+        Raises:
+            ValueError: if the DAG has no head/tail nodes, if a node's
+                bound-input set doesn't match its schema, or if in/out
+                degree doesn't match the node's ``is_start`` / ``is_end``
+                flags.
+        """
         self._validate()
         self.graph.validate()
 
@@ -131,7 +152,33 @@ class _BaseTypePipeline(BaseConnectable):
         src_key: list[str] | str,
         dest_key: list[str] | str,
     ):
-        """Add edge."""
+        """Wire one or more output keys of ``src_connectable`` to input keys
+        of ``dest_connectable``.
+
+        Typically called via the ``>>`` / ``<<`` operator sugar rather than
+        directly::
+
+            (a >> "out_key") >> ("in_key" >> b)
+            # equivalent to:
+            pipe.add_edge(src_connectable=a, dest_connectable=b,
+                          src_key=["out_key"], dest_key=["in_key"])
+
+        ``src_key`` / ``dest_key`` can be strings or equal-length lists;
+        strings are wrapped to single-element lists. Each ``src_key[i]``
+        must exist in ``src.func_schema.internal.output.all`` and the
+        matching ``dest_key[i]`` must exist in ``dest.func_schema.internal
+        .input.all``; their declared types must align.
+
+        Side effects on ``dest_connectable``: ``is_start`` flips to False,
+        each ``dest_key`` is added to ``_input_keys_bound``, and the
+        ``src._id`` is appended to ``_input_keys_nodes_map[dest_key]``.
+        ``src_connectable.is_end`` flips to False.
+
+        Raises:
+            RuntimeError: if the pipeline has already been ``compile()``d.
+            ValueError: if any key is missing from the corresponding schema
+                or the input/output type tags disagree.
+        """
         if self.is_compiled:
             raise RuntimeError(f"Pipeline {self.name} has been compiled!")
         if isinstance(src_key, str):

@@ -1,20 +1,20 @@
 import asyncio
 import time
 from llmagpie.base.node import MakeNode, BaseNode
-from llmagpie.base.pipeline import BasePipeline 
+from llmagpie.base.pipeline import BasePipeline
 
 @MakeNode.from_class(func_name="async_call", outputs=dict(outputs=str))
 class EntryNode(BaseNode):
     async def async_call(self, inputs: str):
         time.sleep(0.1)
         return dict(outputs=inputs + "@" + self.name + "_A")
-    
+
 @MakeNode.from_class(func_name="async_call", outputs=dict(outputs=str))
 class MiddleNode_B(BaseNode):
     async def async_call(self, inputs: str):
         time.sleep(0.1)
         return dict(outputs=inputs + "@" + self.name + "_B")
-    
+
 @MakeNode.from_class(func_name="async_call", outputs=dict(outputs=str))
 class MiddleNode_C1(BaseNode):
     async def async_call(self, inputs: str):

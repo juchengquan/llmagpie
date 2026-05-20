@@ -217,7 +217,17 @@ class BaseConnectable(BaseStateStore):
         raise exc
 
     def clean_states(self, session_id: str):
-        """"""
+        """Drop all per-session state for ``session_id`` from this node and,
+        if this is a pipeline, recursively from every node it owns.
+
+        Removes the session's entry from ``input_state``, ``output_state``,
+        and ``output_history_state`` and calls :meth:`clean_user_defined_states`
+        for any user-declared :class:`BaseState` fields.
+
+        ``invoke()`` / ``async_invoke()`` call this in their ``finally`` blocks,
+        so direct invocation is rare — call it explicitly only when reusing
+        the same node across sessions outside the normal entry points.
+        """
         if hasattr(self, "graph"):
             graph = self.graph
             for _id in graph.nodes:
@@ -235,6 +245,17 @@ class BaseConnectable(BaseStateStore):
                 self.logger.debug(getattr(self, object_store_name))
 
     def precheck(self, session_id: str, inputs: dict | None = None, **kwargs) -> dict | None:
+        """Validate ``inputs`` against the node's schema and gating condition.
+
+        If ``inputs`` is ``None``, the most recent upstream values for this
+        session are pulled from ``input_state``.
+
+        Returns the validated dict if execution should proceed, or ``None``
+        to skip this node (input set mismatch — logged at WARNING — or
+        ``cond_func`` returned falsy). Raises whatever the user-supplied
+        ``cond_func`` raises; other failures are routed through
+        :meth:`_error_callback` (which cleans state and re-raises).
+        """
         try:
             if inputs is None:
                 inputs = self._get_from_local_store(session_id)
@@ -274,6 +295,34 @@ class BaseConnectable(BaseStateStore):
 
     @final
     def invoke(self, inputs: dict, session_id: str | None = None, **kwargs) -> Generator:
+        """Run the node (or compiled pipeline) synchronously and stream states.
+
+        Args:
+            inputs: For a pipeline, keys are namespaced as ``"<NodeName>.<key>"``
+                matching ``func_schema.internal.input.all``. For a single node,
+                keys are the unprefixed parameter names of the wrapped callable.
+            session_id: Optional caller-supplied session identifier. A random
+                hex UUID is generated if omitted; the same id is propagated
+                through the per-session state dicts.
+
+        Yields:
+            :class:`~llmagpie.base.utils.state.StateResponse` objects, one per
+            internal step. The final yield contains the pipeline / node's
+            terminal output.
+
+        Raises:
+            RuntimeError: if called on an uncompiled pipeline.
+            ValueError: if ``inputs`` is missing required keys or contains
+                unknown ones (see :meth:`precheck`).
+
+        Notes:
+            - Drives the event loop internally: safe to call from sync code.
+              When an event loop is already running in the calling thread,
+              execution is delegated to a worker thread so this method does
+              not block the running loop.
+            - Per-session state is cleaned in a ``finally`` block — partial
+              failures don't leak state across invocations.
+        """
         try:
             _thread_mode = False
             _is_new_loop = False
@@ -321,9 +370,23 @@ class BaseConnectable(BaseStateStore):
     async def async_invoke(
         self, inputs: dict, session_id: str | None = None, **kwargs
     ) -> AsyncGenerator:
-        """Awaitable that returns an async generator. The returned generator
-        owns the per-session cleanup: state for `session_id` is removed when
-        iteration finishes (either StopAsyncIteration or exception)."""
+        """Native-async counterpart to :meth:`invoke`.
+
+        ``async_invoke`` is itself a coroutine: ``await`` it to get the
+        async generator, then iterate to drive execution::
+
+            gen = await pipe.async_invoke(inputs={"...": ...})
+            async for state in gen:
+                ...
+
+        Per-session cleanup runs inside the returned generator's
+        ``finally`` — state for ``session_id`` is removed when iteration
+        completes, whether by exhaustion or exception. (This is why
+        cleanup is delayed past the ``return``.)
+
+        Args, return values, and exceptions are identical to :meth:`invoke`,
+        with the obvious sync→async substitutions.
+        """
         session_id = uuid.uuid4().hex if not session_id else session_id
         try:
             if self.connectable_type == ConnectableType.PIPELINE and not getattr(
