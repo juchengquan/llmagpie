@@ -367,6 +367,107 @@ def test_with_fallback_invokes_fallback_on_failure():
     assert asyncio.run(primary(7)) == "fallback(7)"
 
 
+# ---------------------------------------------------------------------------
+# multi_switch: route src -> exactly one of N branches based on a value.
+# ---------------------------------------------------------------------------
+
+
+def test_multi_switch_routes_to_matching_branch():
+    from llmagpie import BasePipeline
+    from llmagpie.base.utils.routing import multi_switch
+
+    @MakeNode.from_class(func_name="async_call", outputs={"kind": str, "payload": str})
+    class Router(BaseNode):
+        async def async_call(self, kind: str, payload: str):
+            return {"kind": kind, "payload": payload}
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _A(BaseNode):
+        async def async_call(self, kind: str):
+            return {"out": f"A:{kind}"}
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _B(BaseNode):
+        async def async_call(self, kind: str):
+            return {"out": f"B:{kind}"}
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _C(BaseNode):
+        async def async_call(self, kind: str):
+            return {"out": f"C:{kind}"}
+
+    router = Router(name="router")
+    a, b, c = _A(name="a"), _B(name="b"), _C(name="c")
+
+    pipe = BasePipeline(name="pipe", nodes=[router, a, b, c])
+    multi_switch(
+        pipe,
+        router,
+        src_key="kind",
+        dest_key="kind",
+        branches={"alpha": a, "beta": b, "gamma": c},
+    )
+    pipe.compile()
+
+    # Route "beta" → only b fires
+    final_states = list(pipe.invoke(inputs={"router.kind": "beta", "router.payload": "hi"}))
+    final_values = [s.value for s in final_states]
+    # b emitted exactly once; a and c did not emit.
+    assert {"out": "B:beta"} in final_values
+    assert not any(v.get("out", "").startswith("A:") for v in final_values)
+    assert not any(v.get("out", "").startswith("C:") for v in final_values)
+
+
+def test_multi_switch_with_selector():
+    from llmagpie import BasePipeline
+    from llmagpie.base.utils.routing import multi_switch
+
+    @MakeNode.from_class(func_name="async_call", outputs={"label": str})
+    class Producer(BaseNode):
+        async def async_call(self, label: str):
+            return {"label": label}
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _Up(BaseNode):
+        async def async_call(self, label: str):
+            return {"out": "uppercase-branch"}
+
+    @MakeNode.from_class(func_name="async_call", outputs={"out": str})
+    class _Lo(BaseNode):
+        async def async_call(self, label: str):
+            return {"out": "lowercase-branch"}
+
+    p, up, lo = Producer(name="p"), _Up(name="up"), _Lo(name="lo")
+    pipe = BasePipeline(name="pipe", nodes=[p, up, lo])
+    multi_switch(
+        pipe,
+        p,
+        src_key="label",
+        dest_key="label",
+        branches={"u": up, "l": lo},
+        selector=lambda s: "u" if s.isupper() else "l",
+    )
+    pipe.compile()
+    finals = [s.value for s in pipe.invoke(inputs={"p.label": "HELLO"})]
+    assert {"out": "uppercase-branch"} in finals
+    assert {"out": "lowercase-branch"} not in finals
+
+
+def test_multi_switch_rejects_empty_or_duplicate_branches():
+    import pytest
+    from llmagpie import BasePipeline
+    from llmagpie.base.utils.routing import multi_switch
+
+    @MakeNode.from_function(name="src", outputs={"x": str})
+    def _src(x: str) -> str:
+        """src."""
+        return x
+
+    pipe = BasePipeline(name="pipe", nodes=[_src])
+    with pytest.raises(ValueError, match="non-empty"):
+        multi_switch(pipe, _src, src_key="x", dest_key="x", branches={})
+
+
 def test_pipeline_rejects_invoke_before_compile():
     from llmagpie import BasePipeline
 
