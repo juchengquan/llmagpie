@@ -24,8 +24,8 @@ except ImportError:
     # No warning here: this is the default install path. The user only
     # cares if they explicitly try to enable OTEL (via OTEL_COLLECTOR_ENDPOINT).
     OTEL_ENABLED = False
-    trace = None
-    context = None
+    trace = None  # type: ignore[assignment]
+    context = None  # type: ignore[assignment]
 
 
 _DEFAULT_TRACER_ATTRIBUTES: dict = {

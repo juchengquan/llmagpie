@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actionable `ImportError` ("Install with `pip install
   llmagpie[openai]`...") rather than failing at module load.
   `AnthropicChatNode` already did this.
+- **Renamed `experimental/nodes/generators/openai.py` to
+  `openai_legacy.py`** so the module name doesn't shadow the
+  third-party `openai` package (CodeQL was flagging it as a
+  self-import). The legacy `OpenAIChatCompletionWithToolCall` class is
+  unchanged; nothing else in the package imported the file.
 - **`EmptyWrapDecorator` is now identity** (returns `func`
   unchanged) instead of a `wrapt`-based passthrough. The real
   `WrapDecorator` still uses `wrapt`, but only lazy-imports it when an
