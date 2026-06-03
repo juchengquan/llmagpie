@@ -3,12 +3,13 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .connector import SessionLocal
+from .connector import get_session_factory
 from .datatype import SessionBase
 
 
-def get_apscheduler(session_timeout: int = 600):
+def get_apscheduler(session_timeout: int = 600, db_dir: str | None = None):
     """Get apscheduler."""
+    SessionLocal = get_session_factory(db_dir)
 
     def clean_by_time(session_timeout: int = session_timeout):
         """Clean by time."""

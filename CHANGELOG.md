@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Slimmed core install footprint to just `networkx` + `pydantic`.**
+  Removed `Deprecated` (unused), `pytz` (replaced with stdlib
+  `zoneinfo`), `httpx` (moved to provider extras), and `wrapt` (moved
+  to `[opentelemetry]` extra). Importing `llmagpie` on a minimal
+  install no longer pulls in any of those.
+- **Provider nodes lazy-import their SDKs.** `OpenAIChatNode`,
+  `OllamaChatNode`, and the legacy `OpenAIChatCompletionWithToolCall`
+  now import `openai` / `httpx` inside `__init__` and raise an
+  actionable `ImportError` ("Install with `pip install
+  llmagpie[openai]`...") rather than failing at module load.
+  `AnthropicChatNode` already did this.
+- **Renamed `experimental/nodes/generators/openai.py` to
+  `openai_legacy.py`** so the module name doesn't shadow the
+  third-party `openai` package (CodeQL was flagging it as a
+  self-import). The legacy `OpenAIChatCompletionWithToolCall` class is
+  unchanged; nothing else in the package imported the file.
+- **`EmptyWrapDecorator` is now identity** (returns `func`
+  unchanged) instead of a `wrapt`-based passthrough. The real
+  `WrapDecorator` still uses `wrapt`, but only lazy-imports it when an
+  OTEL collector is actually configured.
+- **`experimental/sqlite_db/connector.py`** no longer creates the
+  SQLite engine and runs `Base.metadata.create_all` at module load.
+  Use `get_engine(db_dir=...)` or `get_session_factory(db_dir=...)`
+  instead — they accept an explicit path or fall back to
+  `SQLITE_DB_DIR`, and raise `ValueError` if neither is configured.
+- **New optional extras layout:** `[openai]` adds `openai + httpx`;
+  `[anthropic]` adds `anthropic`; `[ollama]` adds `httpx` (Ollama uses
+  HTTP without an SDK); `[opentelemetry]` adds `wrapt +
+  opentelemetry-*`; `[exp]` now includes `apscheduler` (previously
+  imported but undeclared).
+- **Docs:** README + CLAUDE.md reframed around "framework-first;
+  provider nodes are reference implementations gated behind extras.
+  Bring your own client (LangChain / LiteLLM / raw SDK) for
+  production." Added an extras-cheatsheet table.
+
 ### Added
 - **Token streaming** — `BaseLLMNode.stream_complete()` async-generator
   hook + `StreamChunk` type for incremental updates +
