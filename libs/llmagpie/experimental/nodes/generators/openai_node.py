@@ -12,17 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from httpx import AsyncClient
 from pydantic import ConfigDict
 
 from ._base import BaseLLMNode, LLMResponse, LLMUsage, StreamChunk
-
-try:
-    from openai import AsyncOpenAI
-
-    _OPENAI_INSTALLED = True
-except ImportError:
-    _OPENAI_INSTALLED = False
 
 
 class OpenAIChatNode(BaseLLMNode):
@@ -54,11 +46,14 @@ class OpenAIChatNode(BaseLLMNode):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        if not _OPENAI_INSTALLED:
+        try:
+            from httpx import AsyncClient
+            from openai import AsyncOpenAI
+        except ImportError as e:
             raise ImportError(
                 "Could not import the `openai` package. Install with "
-                "`pip install llmagpie[openai]` or `pip install openai`."
-            )
+                "`pip install llmagpie[openai]` or `pip install openai httpx`."
+            ) from e
         client_kwargs: dict[str, Any] = {
             "timeout": timeout,
             "http_client": AsyncClient(verify=ssl_verify, timeout=timeout),

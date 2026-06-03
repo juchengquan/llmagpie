@@ -3,8 +3,9 @@ import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
 from typing import cast
+from zoneinfo import ZoneInfo
 
-import pytz
+_SINGAPORE_TZ = ZoneInfo("Asia/Singapore")
 
 
 class CustomFormatter(logging.Formatter):
@@ -22,8 +23,8 @@ class CustomFormatter(logging.Formatter):
         Returns:
             datetime: datetime formatted to Singapore timezone.
         """
-        dt = datetime.datetime.fromtimestamp(timestamp or 0.0, tz=pytz.UTC)
-        return dt.astimezone(pytz.timezone("Singapore"))
+        dt = datetime.datetime.fromtimestamp(timestamp or 0.0, tz=datetime.UTC)
+        return dt.astimezone(_SINGAPORE_TZ)
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None):
         """Method to format log record timestamp to provided format if specified else iso format.

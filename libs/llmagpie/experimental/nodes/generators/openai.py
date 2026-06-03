@@ -3,15 +3,31 @@ import json
 # typing
 from typing import Any
 
-from httpx import Client
 from llmagpie.base.node import BaseNode, MakeNode
 from llmagpie.base.tools import ToolsNode
-from openai import OpenAI
+
+
+def _build_openai_client(api_key: str, base_url: str, ssl_verify: bool, timeout: int) -> Any:
+    """Lazy-load the OpenAI SDK + httpx. Both are optional extras
+    (`llmagpie[openai]`); raise an actionable ImportError if missing."""
+    try:
+        from httpx import Client
+        from openai import OpenAI
+    except ImportError as e:
+        raise ImportError(
+            "Could not import the `openai` package. Install with "
+            "`pip install llmagpie[openai]` or `pip install openai httpx`."
+        ) from e
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        http_client=Client(verify=ssl_verify, timeout=timeout),
+    )
 
 
 @MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=list[dict]))
 class OpenAIChatCompletionWithToolCall(BaseNode):
-    client: OpenAI
+    client: Any = None
     tools_node: ToolsNode | None = None
 
     num_tool_calls: int = 0
@@ -35,12 +51,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
             ssl_verify (bool, optional): Whether to verify SSL certificates. Defaults to False.
             timeout (int, optional): The timeout for API requests. Defaults to 60.
         """
-        client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            http_client=Client(verify=ssl_verify, timeout=timeout),
-        )
-        kwargs["client"] = client
+        kwargs["client"] = _build_openai_client(api_key, base_url, ssl_verify, timeout)
         super().__init__(*args, **kwargs)
 
     def bind_tools(self, tools: list[BaseNode]):
@@ -185,7 +196,7 @@ class OpenAIChatCompletionWithToolCall(BaseNode):
 
 @MakeNode.from_class(func_name="async_call", outputs=dict(content=str, tool_calls=list[dict]))
 class OpenAIChatCompletionStream(BaseNode):
-    client: OpenAI
+    client: Any = None
     tools_node: ToolsNode | None = None
 
     def __init__(
@@ -197,13 +208,7 @@ class OpenAIChatCompletionStream(BaseNode):
         *args,
         **kwargs,
     ):
-        client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            http_client=Client(verify=ssl_verify, timeout=timeout),
-        )
-
-        kwargs["client"] = client
+        kwargs["client"] = _build_openai_client(api_key, base_url, ssl_verify, timeout)
         super().__init__(*args, **kwargs)
 
     def bind_tools(self, tools: list[BaseNode]):
@@ -224,7 +229,7 @@ class OpenAIChatCompletionStream(BaseNode):
         if self.tools_node:
             call_kwargs.update(dict(tools=self.tools_node._generate_openai_schema()))
 
-        response = self.client.chat.completions.create(**call_kwargs)  # type: ignore
+        response = self.client.chat.completions.create(**call_kwargs)
 
         post_response = get_llm_answer_stream(response)
         return post_response

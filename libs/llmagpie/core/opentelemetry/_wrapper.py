@@ -1,6 +1,5 @@
 import json
 import os
-import warnings
 from collections.abc import Callable
 from functools import partial
 from inspect import BoundArguments, Parameter, iscoroutinefunction, signature
@@ -8,7 +7,6 @@ from inspect import BoundArguments, Parameter, iscoroutinefunction, signature
 # typing
 from typing import Any, Optional, cast
 
-import wrapt
 from pydantic import BaseModel
 from pydantic._internal._model_construction import ModelMetaclass
 
@@ -23,10 +21,11 @@ try:
 
     OTEL_ENABLED = True
 except ImportError:
-    warnings.warn("opentelemetry-python is not installed", stacklevel=2)
+    # No warning here: this is the default install path. The user only
+    # cares if they explicitly try to enable OTEL (via OTEL_COLLECTOR_ENDPOINT).
     OTEL_ENABLED = False
-    trace = None  # type: ignore[assignment]
-    context = None  # type: ignore[assignment]
+    trace = None
+    context = None
 
 
 _DEFAULT_TRACER_ATTRIBUTES: dict = {
@@ -107,6 +106,11 @@ class WrapDecorator:
         if func is None:
             return partial(self.__call__)
 
+        # Lazy-import wrapt only when the real (non-empty) decorator is used,
+        # i.e. when an OTEL collector endpoint is configured. Keeps `wrapt`
+        # out of the core install footprint.
+        import wrapt
+
         @wrapt.decorator
         def wrapper(func, instance, args, kwargs):
             name = self._get_instance_info(instance)
@@ -179,23 +183,16 @@ class WrapDecorator:
 
 
 class EmptyWrapDecorator:
+    """No-op tracer decorator used when OTEL isn't configured. Returns the
+    target callable unchanged so we don't pay any wrapping overhead — and,
+    importantly, don't pull `wrapt` into the core install footprint."""
+
     _tracer: Any = None
 
     def __call__(self, func=None):
         if func is None:
             return partial(self.__call__)
-
-        @wrapt.decorator
-        def wrapper(func, instance, args, kwargs):
-            return func(*args, **kwargs)
-
-        @wrapt.decorator
-        async def async_wrapper(func, instance, args, kwargs):
-            return await func(*args, **kwargs)
-
-        if iscoroutinefunction(func):
-            return async_wrapper(func)
-        return wrapper(func)
+        return func
 
 
 opentelemetry_tracer: WrapDecorator | EmptyWrapDecorator

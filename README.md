@@ -6,31 +6,52 @@ or LLM clients; pipelines run them asynchronously, stream results, fan
 in/out across branches, loop until a condition, and decompose nested
 pipelines as a single node.
 
-> Status: alpha. The core (`BaseConnectable` / `BaseNode` / `BasePipeline`)
-> is stable enough for examples and small projects. The `experimental/`
-> subpackage (Chroma store, sqlite scheduler, OpenAI generator) is
-> deliberately not part of the public surface.
+> **Framework-first.** The core (`BaseConnectable` / `BaseNode` /
+> `BasePipeline`) is the supported public surface and ships with only
+> `networkx` + `pydantic` as runtime dependencies. Provider clients,
+> vector stores, schedulers, and the OTEL tracer live under
+> `experimental/` as reference implementations — opt-in via extras,
+> never imported until you touch them. Bring your own (LangChain,
+> LiteLLM, the raw SDK) for production.
+>
+> Status: alpha. The core is stable enough for examples and small
+> projects; `experimental/` can change between releases.
 
 ## Install
 
 The project uses [`uv`](https://docs.astral.sh/uv/) and PEP 621 metadata.
 
 ```bash
-uv sync                                  # core deps only
-uv sync --extra opentelemetry            # with OTEL tracing
-uv sync --extra exp                      # with experimental extras (chromadb, sqlalchemy)
-uv sync --extra openai                   # adds the OpenAI client
-uv sync --group dev                      # install dev tooling (pytest)
+uv sync                                  # core only (networkx + pydantic)
+uv sync --extra openai                   # OpenAI provider (openai + httpx)
+uv sync --extra anthropic                # Anthropic provider
+uv sync --extra ollama                   # Ollama provider (just httpx)
+uv sync --extra opentelemetry            # OTEL tracing (wrapt + opentelemetry-*)
+uv sync --extra exp                      # vector store + sqlite + scheduler
+uv sync --group dev                      # dev tooling (pytest, mypy, ruff)
 ```
 
 Or with pip directly:
 
 ```bash
-pip install -e .                         # core
-pip install -e ".[opentelemetry,exp]"    # with extras
+pip install -e .                                  # core
+pip install -e ".[openai]"                        # one provider
+pip install -e ".[openai,anthropic,ollama]"       # several
+pip install -e ".[opentelemetry,exp]"             # everything optional
 ```
 
 Requires Python 3.12+.
+
+### What's where
+
+| Extra | Pulls in | Use when |
+|---|---|---|
+| (none) | `networkx`, `pydantic` | You're using the framework with your own LLM client. |
+| `openai` | `openai`, `httpx` | `OpenAIChatNode` (recommended) or legacy `OpenAIChatCompletionWithToolCall`. |
+| `anthropic` | `anthropic` | `AnthropicChatNode`. |
+| `ollama` | `httpx` | `OllamaChatNode` (local models via HTTP, no SDK). |
+| `opentelemetry` | `wrapt`, `opentelemetry-*` | You set `OTEL_COLLECTOR_ENDPOINT` and want real spans. |
+| `exp` | `chromadb`, `sqlalchemy`, `apscheduler` | Experimental Chroma / sqlite store / scheduler. |
 
 ## Quick start
 

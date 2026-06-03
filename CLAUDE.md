@@ -12,9 +12,41 @@
 - `libs/llmagpie/base/` — public-ish core. Treat as stable.
 - `libs/llmagpie/core/opentelemetry/` — optional OTEL decorator. Becomes a
   no-op `EmptyWrapDecorator` if `OTEL_COLLECTOR_ENDPOINT` is unset or
-  `opentelemetry` is not installed.
+  `opentelemetry` is not installed. `EmptyWrapDecorator` is the
+  identity decorator (returns `func` as-is) so it doesn't pull in
+  `wrapt` — that's an `[opentelemetry]`-extra dep, lazy-imported inside
+  `WrapDecorator.__call__`.
 - `libs/llmagpie/experimental/` — not part of the public surface. Anything
   here can change. Includes `_chroma.py`, `sqlite_db/`, `nodes/generators/`.
+  Provider nodes (OpenAI / Anthropic / Ollama) are reference
+  implementations gated behind optional extras (`pip install
+  llmagpie[openai]` etc.). Production users are expected to bring their
+  own client (LangChain, LiteLLM, raw SDK) and wire it as a
+  `BaseLLMNode` subclass — that's the supported contract.
+
+## Optional-dep / lazy-import pattern
+
+Anything that imports a third-party SDK at module load time gates the
+core install. So everything under `experimental/` follows this pattern:
+
+```python
+class FooProviderNode(BaseLLMNode):
+    def __init__(self, ...):
+        try:
+            from foo import FooClient
+        except ImportError as e:
+            raise ImportError(
+                "Could not import `foo`. Install with "
+                "`pip install llmagpie[foo]` or `pip install foo`."
+            ) from e
+        ...
+```
+
+Keep the import inside `__init__` (or a small `_build_client` helper),
+not at module top. The module must be importable on a minimal install
+so things like `from llmagpie.experimental.nodes.generators import ...`
+in `__init__.py` don't crash when the user only wanted a different
+provider.
 - `_examples/simple_composition/` — small runnable demos. They double as
   the integration test corpus via `tests/test_examples.py`.
 

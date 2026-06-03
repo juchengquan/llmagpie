@@ -1,8 +1,9 @@
 """Ollama chat-completion provider (local LLMs via HTTP).
 
 Talks to a running Ollama server (default ``http://localhost:11434``)
-using its ``/api/chat`` endpoint. No SDK required — uses ``httpx``,
-which the framework already depends on."""
+using its ``/api/chat`` endpoint. Uses ``httpx`` directly (no provider
+SDK required). Install via ``pip install llmagpie[ollama]`` which
+pulls in `httpx`."""
 
 from __future__ import annotations
 
@@ -10,7 +11,6 @@ import json
 import uuid
 from typing import Any
 
-import httpx
 from pydantic import ConfigDict
 
 from ._base import BaseLLMNode, LLMResponse, LLMUsage, StreamChunk
@@ -45,6 +45,13 @@ class OllamaChatNode(BaseLLMNode):
         *args: Any,
         **kwargs: Any,
     ) -> None:
+        try:
+            import httpx
+        except ImportError as e:
+            raise ImportError(
+                "Could not import the `httpx` package. Install with "
+                "`pip install llmagpie[ollama]` or `pip install httpx`."
+            ) from e
         # Ollama can be slow on first load; default timeout is more generous.
         kwargs["base_url"] = base_url
         kwargs["client"] = httpx.AsyncClient(base_url=base_url, timeout=timeout)
