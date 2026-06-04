@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Multi-agent supervisor/worker orchestration**
+  (`experimental/orchestration/`). New `Supervisor` class subclasses
+  `Agent` and delegates to worker `Agent`s via tool calls. Workers
+  are built with `agent.as_worker(name=..., description=...)` and
+  surface to the supervisor's LLM as `transfer_to_<name>` tools.
+- Configurable context-handoff modes per worker: `task_only`
+  (default, Anthropic-style), `task_plus_history` (last N supervisor
+  messages with role-flipping), `shared_scratchpad` (structured
+  state passed via tags).
+- Parallel fan-out via `asyncio.TaskGroup` when the supervisor emits
+  multiple worker tool calls in one round; bounded by
+  `max_parallel_workers` (default 4). Workers are dispatched in
+  parallel but results are appended to the supervisor's transcript
+  in tool-call order.
+- `BudgetExceededError` enforced across nested supervisor + worker
+  runs — cumulative `LLMUsage` rolled up after each worker returns.
+- `DelegationTrace` data type captures the full delegation tree
+  (worker, task, depth, timestamps, usage, error, children). Exposed
+  on `SupervisorResult.trace`; `format()` pretty-prints as an
+  indented tree.
+- `NoProgressDetector` — pathology-based termination guard. Fires
+  when the supervisor's last N LLM responses had no tool calls AND
+  highly-similar content (`difflib.SequenceMatcher` ratio above
+  threshold). Defaults: window=3, similarity=0.85.
+- `Supervisor.stream(...)` yields `SupervisorChunk` events tagged
+  with `source="supervisor"` or `source="worker"`, plus
+  `start`/`end` boundary markers around worker invocations.
+- Hallucinated worker names + malformed handoff args produce
+  tool-error messages the supervisor's LLM can recover from — never
+  raise.
+- Runnable example at
+  `_examples/agents/supervisor_basic.py` — research+writer pipeline
+  with cumulative usage rollup and a printed delegation trace.
+- `MULTI_AGENT_PLAN.md` — research-backed design document covering
+  the landscape (LangGraph / OpenAI Agents SDK / AutoGen / CrewAI),
+  the seven handoff design principles, four-phase rollout plan, and
+  decisions checklist.
+
 ### Changed
 - **Slimmed core install footprint to just `networkx` + `pydantic`.**
   Removed `Deprecated` (unused), `pytz` (replaced with stdlib
