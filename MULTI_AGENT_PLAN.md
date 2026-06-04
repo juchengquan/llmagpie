@@ -130,17 +130,140 @@ print(result.trace)         # DelegationTrace — pretty-prints the call tree
 - `Supervisor` reuses `Agent`'s tool-call loop. Specifically, `Supervisor` **is** an `Agent` subclass — its only added behavior is (a) registering workers as tools, (b) cumulative usage aggregation across worker invocations, (c) the `trace` field, (d) depth tracking. This means: cache, memory, structured outputs, stop conditions, streaming all come "for free" via the base.
 - `WorkerHandle.invoke(args, parent_usage, depth)` is the seam where context-handoff strategy, budget propagation, and trace bookkeeping happen. The supervisor's tool-call dispatch routes here.
 
-### 2.4 Context handoff strategy
+### 2.4 Handoff design
 
-Three modes, default `"task_only"`:
+The handoff is the load-bearing mechanic of the supervisor pattern and gets the most detailed treatment here. **Seven design principles**, in priority order:
 
-| Mode | What the worker sees | Token cost | When to use |
-|---|---|---|---|
-| `"task_only"` (default) | Just the task description the supervisor wrote in its tool call (plus the worker's own system prompt and memory). | Lowest. | Decomposable, read-mostly work — the Anthropic pattern. |
-| `"task_plus_history"` | Task description + last N messages from the supervisor's transcript. N defaults to 6. | Medium. | Workers that need conversational context (e.g. multi-turn user clarifications). |
-| `"shared_scratchpad"` | Task description + a structured scratchpad object the supervisor manages. | Low-medium. | Multi-step coordination where workers need to read/write a shared structured state. |
+1. **Handoff is a tool call — full stop.** Not a graph edge, not an LLM-picked next speaker, not a special syntax. The supervisor's LLM emits `transfer_to_<worker>(...)` like any other tool. Matches what the model already knows how to do, keeps the loop introspectable, makes hallucinations recoverable. LangGraph, the Agents SDK, AutoGen Swarm, and CrewAI all converged here.
+2. **Arguments are typed and validated at the boundary.** A `HandoffArgs` Pydantic schema with `task: str` (required, self-contained) and optional fields. Validation rejection is **not** an exception — it's a tool-result message the LLM can retry from. CrewAI's #2606 (their schema crashed when the model passed a dict instead of a string) is exactly what this prevents.
+3. **Default context is "task only" — be Anthropic, not LangGraph.** The supervisor passes a self-contained task string; the worker sees that plus its own system prompt. Nothing else by default. Easy to relax (`"task_plus_history"`); impossible to claw back token bloat after the fact.
+4. **Workers can't hand back.** A worker returns its result and exits; the supervisor's LLM decides what's next. Bidirectional handoff is a different orchestration class (Swarm), not a knob.
+5. **Errors travel as tool results, never as raised exceptions.** Worker crash, budget exceeded, schema invalid, hallucinated worker name — all become a tool-result `{"error": "..."}`. The only thing that propagates upward is the supervisor's own budget. A worker failure should never kill the supervisor's run; the LLM is the recovery loop.
+6. **Memory is per-delegation by default.** Each `WorkerHandle.invoke()` opens a fresh thread for the worker's memory store. Workers don't accumulate context across delegations unless `persistent_thread=True` is set. Makes delegations stateless and parallelizable.
+7. **Usage propagates eagerly, never lazily.** After every worker returns, its `LLMUsage` is added to the supervisor's accumulator *before* the next supervisor LLM call. Budget checks always see truthful cumulative cost — even mid-delegation. Parallel-fanout phase tightens this: a sibling's overage cancels still-running siblings via `TaskGroup`.
 
-Per-worker override: `agent.as_worker(name=..., context_handoff="task_plus_history", history_window=8)`. The default is deliberately the most restrictive — easier to relax than to claw back token bloat once it's baked in.
+#### The wire format
+
+Each `WorkerHandle` exposes itself to the supervisor's LLM as a single tool:
+
+```python
+class HandoffArgs(BaseModel):
+    task: str = Field(
+        description=(
+            "A self-contained task description. The worker has no memory of prior "
+            "conversation; everything it needs must be in this field."
+        )
+    )
+    context_hint: str | None = Field(
+        default=None,
+        description="Optional short context the supervisor wants the worker to keep in mind.",
+    )
+    expected_fields: list[str] | None = None  # used when worker has a response_schema
+```
+
+Tool description is auto-generated as `WorkerHandle.description` + a literal enumeration of the worker's available tools, so the supervisor's LLM knows what each worker can actually do:
+
+```
+transfer_to_researcher: Delegate a task to the `researcher` agent. The worker
+will return content + structured result. Available tools: web_search, fetch_url.
+```
+
+#### What the worker sees on input (the three modes)
+
+**`"task_only"` (default)**
+```python
+messages = [
+    {"role": "system", "content": worker.system_prompt},
+    {"role": "user", "content": args.task},
+]
+```
+No view of the supervisor's transcript, no other workers' results.
+
+**`"task_plus_history"`**
+```python
+messages = [
+    {"role": "system", "content": worker.system_prompt},
+    # Last N supervisor messages, role-flipped: supervisor's "assistant" turns
+    # become user-side annotated context (<supervisor_message>...</supervisor_message>),
+    # so the worker treats them as background rather than turns to continue from.
+    *_summarize_tail(parent_messages, n=history_window),
+    {"role": "user", "content": args.task},
+]
+```
+
+**`"shared_scratchpad"`**
+```python
+messages = [
+    {"role": "system", "content": worker.system_prompt + SCRATCHPAD_INSTRUCTIONS},
+    {"role": "user", "content": (
+        f"<task>{args.task}</task>\n"
+        f"<scratchpad>{json.dumps(supervisor.scratchpad)}</scratchpad>"
+    )},
+]
+```
+Worker returns a structured patch (`{"updates": {...}}`) merged into the shared scratchpad before the next delegation. Forces structured output — best for genuine coordination where free-text returns lose state.
+
+#### Inside `WorkerHandle.invoke()`
+
+```python
+async def invoke(
+    self, args: HandoffArgs, *, parent_messages, depth, parent_usage, scratchpad,
+) -> WorkerResult:
+    if depth >= self._max_depth:
+        return WorkerResult(worker=self.name, content="",
+                            error=f"max_depth exceeded ({depth})")
+
+    messages = self._build_messages(args, parent_messages, scratchpad)
+
+    # Worker drives its own tool loop / memory / cache / budget / stop_condition.
+    # We call `_drive(messages)` directly rather than `worker.run(user_message=...)`
+    # so the worker doesn't double-persist the synthesized handoff to its memory store.
+    try:
+        agent_result = await self.agent._drive(messages, depth=depth + 1)
+    except BudgetExceededError as e:
+        return WorkerResult(worker=self.name, content="", usage=e.usage_so_far,
+                            error=f"worker budget exceeded: {e}")
+    except Exception as e:                              # narrow this in practice
+        return WorkerResult(worker=self.name, content="", error=repr(e))
+
+    parent_usage += agent_result.usage                  # eager rollup, principle #7
+    return WorkerResult(
+        worker=self.name,
+        content=agent_result.content,
+        parsed=agent_result.parsed,
+        usage=agent_result.usage,
+    )
+```
+
+The supervisor's tool-dispatch wraps `WorkerResult` into the tool-result message its LLM sees on the next round:
+
+```python
+{
+    "role": "tool",
+    "tool_call_id": tc["id"],
+    "content": json.dumps({
+        "worker": result.worker,
+        "result": result.content,
+        "structured": result.parsed,
+        "error": result.error,        # null on success
+    }, default=str),
+}
+```
+
+#### Validation and hallucination handling
+
+Two checks at the supervisor's tool-dispatch boundary:
+
+1. **Worker-name validation.** If the LLM hallucinates `transfer_to_legalbot` and there's no such worker, the dispatch returns a tool-result with `{"error": "unknown worker", "available": ["researcher", "writer"]}` so the LLM can retry. Never crashes.
+2. **Args validation.** If the model emits `{"task": null}` or malformed JSON, Pydantic rejects, we return the same tool-error shape with the validation message. Worker is never invoked.
+
+#### Memory scoping
+
+Each `WorkerHandle.invoke()` creates a fresh `thread_id` for the worker's memory store, scoped per delegation. Matches "every subagent gets a fresh context window" from the Anthropic post and avoids cross-run leakage. If you genuinely want a worker that maintains cross-delegation memory (a "team historian"), opt in via `WorkerHandle(persistent_thread=True)`.
+
+#### Worker's own tools
+
+Each worker runs its own tool loop internally (it's a real `Agent`). The supervisor doesn't see the worker's tool calls — only the final `WorkerResult.content`/`.parsed`. Worker tool calls appear in the `DelegationTrace` for observability but never bubble up as tool results to the supervisor's LLM. This is what makes the abstraction cleanly nestable: a worker that's itself a `Supervisor` runs its own delegations privately and surfaces only the final result.
 
 ### 2.5 Result aggregation
 
