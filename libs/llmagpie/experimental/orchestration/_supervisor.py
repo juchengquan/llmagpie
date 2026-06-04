@@ -585,8 +585,12 @@ class Supervisor(Agent):
                     if isinstance(result.parsed, BaseModel)
                     else result.parsed
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Best-effort serialization: if the worker's parsed payload isn't
+                # JSON-serializable (unusual custom types), omit the structured
+                # field rather than failing the supervisor's round-trip. The raw
+                # text content is always present on `result.content`.
+                payload["structured_error"] = repr(exc)
         if result.error:
             payload["error"] = result.error
         return {

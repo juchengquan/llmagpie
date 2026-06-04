@@ -16,17 +16,13 @@ The two paths are separated because workers are themselves agents
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmagpie.base.node import BaseNode, MakeNode
 
 from ..nodes.generators._base import LLMUsage
-
-if TYPE_CHECKING:
-    from ..agent import Agent
-
 
 # Tool-call name prefix the supervisor uses to identify a worker call.
 # E.g. a worker registered with name="researcher" surfaces to the LLM
@@ -255,7 +251,7 @@ def _summarize_tail(messages: list[dict[str, Any]], *, n: int) -> list[dict[str,
     return flipped
 
 
-def _list_worker_tools(agent: Agent | None) -> list[str]:
+def _list_worker_tools(agent: Any) -> list[str]:
     """Walk the agent's wrapped LLM chain looking for a bound ToolsNode,
     return the tool names. Empty list if no tools / no agent."""
     if agent is None:
