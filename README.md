@@ -226,6 +226,12 @@ What you get:
   Supervisor + worker isolation is automatic: when both have
   `debug=True`, each gets its own tape file; when only the
   supervisor does, worker calls land in the supervisor's tape.
+  Inspect any tape from the shell:
+
+  ```bash
+  python -m llmagpie.observability.tape ./.llmagpie-debug/*.jsonl --summary
+  python -m llmagpie.observability.tape ./.llmagpie-debug/<run>__planner.jsonl
+  ```
 
 Runnable end-to-end demo:
 [`_examples/agents/supervisor_with_debugging.py`](_examples/agents/supervisor_with_debugging.py).
