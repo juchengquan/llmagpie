@@ -20,7 +20,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmagpie.base.node import BaseNode
-from llmagpie.observability import attach_context, derive, push
+from llmagpie.observability import agent_span, attach_context, derive, push
 
 from ..agent import Agent, AgentResult
 from ..nodes.generators._base import LLMResponse, LLMUsage, StreamChunk
@@ -181,7 +181,7 @@ class Supervisor(Agent):
             thread_id=thread_id,
             delegation_trace=self._current_trace,
         )
-        with push(ctx):
+        with push(ctx), agent_span(agent_name=self.name, is_supervisor=True):
             try:
                 base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
                 messages = self._build_messages(user_message)
@@ -374,7 +374,7 @@ class Supervisor(Agent):
 
         # First LLM call goes through self._llm._complete so memory/cache/provider
         # composition all apply.
-        response = await self._llm._complete(self.model, messages, **kwargs)
+        response = await self._llm._complete_traced(self.model, messages, **kwargs)
         total = _accumulate(total, response.usage)
         self._enforce_budget(total)
         progress.observe(response)
@@ -464,7 +464,7 @@ class Supervisor(Agent):
                     )
 
             # Next LLM round.
-            response = await self._llm._complete(self.model, messages, **kwargs)
+            response = await self._llm._complete_traced(self.model, messages, **kwargs)
             total = _accumulate(total, response.usage)
             self._enforce_budget(total)
             progress.observe(response)

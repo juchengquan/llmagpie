@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, ClassVar
 
 from llmagpie.base.node import BaseNode, MakeNode
+from llmagpie.observability import chat_span, set_llm_attributes
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -108,6 +109,12 @@ class BaseLLMNode(BaseNode):
 
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
+    # Stamped as ``gen_ai.system`` on every chat span. Subclasses
+    # override (``"openai"``, ``"anthropic"``, ``"ollama"`` …). When
+    # unset, :meth:`_complete_traced` derives a best-effort name from
+    # the class. ClassVar so pydantic doesn't promote it to a field.
+    provider_name: ClassVar[str | None] = None
+
     tools_node: Any = None  # Optional[ToolsNode]; typed Any to avoid cycle.
     max_tool_iterations: int = 3
     # Optional callable invoked after each provider round-trip in the
@@ -136,6 +143,55 @@ class BaseLLMNode(BaseNode):
     ) -> LLMResponse:
         """One round-trip to the provider. Subclasses must implement."""
         raise NotImplementedError
+
+    async def _complete_traced(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """Wrap :meth:`_complete` in an OTel ``chat`` span and stamp
+        GenAI semconv attributes from the response. The span is a
+        no-op when OpenTelemetry isn't installed.
+
+        Framework callers (the tool-call loop here, ``Supervisor._drive``,
+        etc.) should call this instead of :meth:`_complete` directly so
+        every provider round-trip shows up in the trace tree with token
+        counts.
+        """
+        system = self._provider_system_name()
+        with chat_span(model=model, system=system) as span:
+            response = await self._complete(model, messages, **kwargs)
+            set_llm_attributes(
+                span,
+                model=response.model or model,
+                usage=response.usage,
+                finish_reason=response.finish_reason,
+                system=system,
+            )
+            return response
+
+    def _provider_system_name(self) -> str:
+        """Best-effort ``gen_ai.system`` value for the chat span.
+
+        Walks the wrapper chain (Memory → Cache → … → Provider) down
+        to the leaf that actually talks to the LLM so the span reports
+        the *real* provider, not "memory". Honors an explicit
+        ``provider_name`` class attribute when set; otherwise strips
+        the common ``ChatCompletion`` / ``Node`` suffixes from the
+        leaf's class name.
+        """
+        leaf: Any = self
+        while getattr(leaf, "inner", None) is not None:
+            leaf = leaf.inner
+        if getattr(leaf, "provider_name", None):
+            return leaf.provider_name
+        cls_name = type(leaf).__name__
+        for suffix in ("ChatCompletionWithToolCall", "ChatCompletion", "Node"):
+            if cls_name.endswith(suffix):
+                cls_name = cls_name[: -len(suffix)]
+                break
+        return cls_name.lower() or "unknown"
 
     async def stream_complete(
         self,
@@ -279,7 +335,7 @@ class BaseLLMNode(BaseNode):
             ``max_tool_iterations``).
         """
         kwargs = params or {}
-        response = await self._complete(model, messages, **kwargs)
+        response = await self._complete_traced(model, messages, **kwargs)
 
         # If the caller-supplied stop_condition fires on the very first
         # response, honor it immediately — even before the tool loop.
@@ -297,7 +353,7 @@ class BaseLLMNode(BaseNode):
             tool_result = await self.tools_node.async_call_(tool_calls_list=response.tool_calls)
             tool_outputs = tool_result.get("tool_calls_list", [])
             self._append_tool_messages(messages, response, tool_outputs)
-            response = await self._complete(model, messages, **kwargs)
+            response = await self._complete_traced(model, messages, **kwargs)
             iterations += 1
             if self.stop_condition is not None and self.stop_condition(response):
                 break

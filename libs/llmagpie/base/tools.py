@@ -9,6 +9,7 @@ from uuid import uuid4
 from pydantic import ConfigDict
 
 from llmagpie.base.node import BaseNode, MakeNode
+from llmagpie.observability import tool_span
 
 
 @MakeNode.from_class(func_name="fire", outputs={"tool_calls_list": list[dict]})
@@ -57,7 +58,17 @@ class ToolsNode(BaseNode):
                             args = json.loads(args)
 
                         self.logger.info(f"Running tool: {_tool.name}")
-                        future = executor.submit(ctx.run, _tool.run, **args)  # type: ignore[arg-type]
+
+                        # Open the tool span *inside* the worker thread
+                        # (via the wrap closure) so the span's lifetime
+                        # matches the actual run. The copied ctx carries
+                        # OTel's active-span ContextVar, so the new span
+                        # nests under the agent/chat span correctly.
+                        def _run_in_span(_t=_tool, _kw=args):
+                            with tool_span(tool_name=_t.name):
+                                return _t.run(**_kw)
+
+                        future = executor.submit(ctx.run, _run_in_span)
 
                     except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
                         self.logger.warning(f"Tool dispatch failed for {function_args!r}: {exc}")

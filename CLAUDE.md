@@ -12,10 +12,14 @@
 - `libs/llmagpie/base/` — public-ish core. Treat as stable.
 - `libs/llmagpie/observability/` — public-ish too. Carries the
   `RunContext` spine (a ContextVar-backed correlation object) plus
-  `format_error()` / `format_trace()` / `RunContextFilter`. Imported by
+  `format_error()` / `format_trace()` / `RunContextFilter` and the
+  GenAI-semconv span helpers (`agent_span`, `handoff_span`,
+  `tool_span`, `chat_span`, `set_llm_attributes`). Imported by
   `base/logging/logging.py` and by the experimental `Agent` /
-  `Supervisor` / `WorkerHandle` entry points. Pure-stdlib + pydantic;
-  no OTEL or third-party deps.
+  `Supervisor` / `WorkerHandle` / `BaseLLMNode` / `ToolsNode` entry
+  points. Pure-stdlib + pydantic on the core path; `_otel.py` lazy-
+  imports `opentelemetry` and gracefully no-ops if the import fails
+  or no tracer provider is configured.
 - `libs/llmagpie/core/opentelemetry/` — optional OTEL decorator. Becomes a
   no-op `EmptyWrapDecorator` if `OTEL_COLLECTOR_ENDPOINT` is unset or
   `opentelemetry` is not installed. `EmptyWrapDecorator` is the
@@ -102,6 +106,21 @@ a `contextvars.ContextVar`. Every public `run()` (`Agent`,
   copy — caught a regression mid-Phase-1.
 - Timezone for log timestamps is `LLMAGPIE_LOG_TZ` (defaults to UTC).
   This replaced the hardcoded `Asia/Singapore` from before.
+- GenAI semconv spans: `Agent.run` / `Supervisor.run` open
+  `agent_span` (`openinference.span.kind=AGENT`,
+  `gen_ai.agent.name=<name>`). `WorkerHandle.dispatch` opens
+  `handoff_span` (`openinference.span.kind=CHAIN`,
+  `llmagpie.handoff.{source,target,depth,task_preview}`). Each
+  provider round-trip goes through `BaseLLMNode._complete_traced`
+  which opens a `chat_span` and stamps `gen_ai.usage.input_tokens`
+  / `output_tokens` / `gen_ai.request.model` / `gen_ai.system` /
+  `gen_ai.response.finish_reasons` from the `LLMResponse`. The
+  `system` value is derived by walking the wrapper chain (Memory →
+  Cache → … → Provider) to the leaf and reading its
+  `provider_name` ClassVar, so the span reports the real provider,
+  not "memory". `ToolsNode.fire` opens a `tool_span` per call
+  *inside* the worker thread, so the span parents correctly under
+  the agent/chat span via the copied OTel context.
 
 ## Things that have bitten people before
 

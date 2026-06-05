@@ -21,7 +21,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmagpie.base.node import BaseNode, MakeNode
-from llmagpie.observability import derive, push
+from llmagpie.observability import current_context, derive, handoff_span, push
 
 from ..nodes.generators._base import LLMUsage
 
@@ -169,7 +169,12 @@ class WorkerHandle(BaseNode):
         # ``depth`` so log lines / traces emitted inside the worker's
         # Agent.run() are attributable.
         ctx = derive(worker=self.name, depth=depth)
-        with push(ctx):
+        parent = current_context()
+        source = (parent.supervisor or parent.agent or "?") if parent is not None else "?"
+        with (
+            push(ctx),
+            handoff_span(source=source, target=self.name, task=task, depth=depth),
+        ):
             try:
                 # Drive the worker's loop. We use _drive (not run) because we already
                 # built the messages list and we want the raw LLMResponse + usage back

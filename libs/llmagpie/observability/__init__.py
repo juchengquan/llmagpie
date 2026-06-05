@@ -19,6 +19,13 @@ from ._context import RunContext, current, derive, push
 from ._errors import attach_context
 from ._format import format_error, format_trace
 from ._logging import RunContextFilter
+from ._otel import (
+    agent_span,
+    chat_span,
+    handoff_span,
+    set_llm_attributes,
+    tool_span,
+)
 
 # `current_context` is the public alias; `current` stays as the short
 # internal name used by framework code.
@@ -27,10 +34,15 @@ current_context = current
 __all__ = [
     "RunContext",
     "RunContextFilter",
+    "agent_span",
     "attach_context",
+    "chat_span",
     "current_context",
     "derive",
     "format_error",
     "format_trace",
+    "handoff_span",
     "push",
+    "set_llm_attributes",
+    "tool_span",
 ]

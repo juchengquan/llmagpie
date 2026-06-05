@@ -25,7 +25,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from llmagpie.base.node import BaseNode
-from llmagpie.observability import RunContext, attach_context, derive, push
+from llmagpie.observability import RunContext, agent_span, attach_context, derive, push
 
 from .nodes.generators._base import BaseLLMNode, LLMResponse, LLMUsage
 from .nodes.generators.cache import CacheBackend, CachedLLMNode
@@ -281,7 +281,7 @@ class Agent:
         # ``derive`` inherits ``run_id`` / ``supervisor`` / ``depth``
         # from the parent and overrides only what this frame owns.
         ctx = derive(agent=self.name, thread_id=thread_id)
-        with push(ctx):
+        with push(ctx), agent_span(agent_name=self.name):
             try:
                 if self.response_schema is None:
                     last, total = await self._drive(messages, base_params)
