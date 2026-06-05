@@ -19,7 +19,7 @@ from ._capture import TapeWriter, capture_to, current_tape, resolve_debug_path
 from ._context import RunContext, current, derive, push
 from ._errors import attach_context
 from ._format import format_error, format_trace
-from ._logging import RunContextFilter
+from ._logging import JsonFormatter, RunContextFilter
 from ._otel import (
     agent_span,
     chat_span,
@@ -33,6 +33,7 @@ from ._otel import (
 current_context = current
 
 __all__ = [
+    "JsonFormatter",
     "RunContext",
     "RunContextFilter",
     "TapeWriter",

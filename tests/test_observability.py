@@ -378,3 +378,84 @@ def test_logger_uses_placeholders_when_no_context(caplog):
         getattr(rec, "run_id", None) == "-" and getattr(rec, "agent", None) == "-"
         for rec in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# JSON formatter
+# ---------------------------------------------------------------------------
+
+
+def test_json_formatter_emits_valid_json_with_context_fields():
+    """Direct formatter test: emits a single-line JSON object with
+    ts/level/logger/msg/run_id/agent/worker/depth populated."""
+    import io
+    import json as json_lib
+
+    from llmagpie.observability import JsonFormatter, RunContextFilter
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(JsonFormatter())
+    logger = logging.getLogger("test_json_formatter")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    logger.addFilter(RunContextFilter())
+
+    with push(RunContext(run_id="abcdef0123456789", agent="solo", worker="alpha", depth=1)):
+        logger.info("structured log line")
+
+    line = buf.getvalue().strip().splitlines()[-1]
+    payload = json_lib.loads(line)
+    assert payload["msg"] == "structured log line"
+    assert payload["level"] == "INFO"
+    assert payload["logger"] == "test_json_formatter"
+    assert payload["run_id"] == "abcdef01"
+    assert payload["agent"] == "solo"
+    assert payload["worker"] == "alpha"
+    assert payload["depth"] == 1
+
+
+def test_json_formatter_passes_through_extras():
+    """Caller-supplied ``extra=`` fields get top-level keys in the
+    JSON payload (so users can ship structured fields without
+    subclassing)."""
+    import io
+    import json as json_lib
+
+    from llmagpie.observability import JsonFormatter
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(JsonFormatter())
+    logger = logging.getLogger("test_json_extras")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+
+    logger.info("with extras", extra={"latency_ms": 42, "user": "alice"})
+
+    payload = json_lib.loads(buf.getvalue().strip().splitlines()[-1])
+    assert payload["latency_ms"] == 42
+    assert payload["user"] == "alice"
+
+
+def test_resolve_formatter_picks_json_when_flag_set():
+    """``json=True`` (explicit kwarg) selects the JsonFormatter."""
+    from llmagpie.base.logging.logging import _resolve_formatter
+    from llmagpie.observability import JsonFormatter
+
+    assert isinstance(_resolve_formatter(True), JsonFormatter)
+    assert not isinstance(_resolve_formatter(False), JsonFormatter)
+
+
+def test_resolve_formatter_honors_env_var(monkeypatch):
+    """``LLMAGPIE_LOG_JSON=1`` flips the formatter when no explicit arg."""
+    from llmagpie.base.logging.logging import _resolve_formatter
+    from llmagpie.observability import JsonFormatter
+
+    monkeypatch.setenv("LLMAGPIE_LOG_JSON", "1")
+    assert isinstance(_resolve_formatter(None), JsonFormatter)
+    # Explicit False still wins over env var.
+    assert not isinstance(_resolve_formatter(False), JsonFormatter)
+
+    monkeypatch.setenv("LLMAGPIE_LOG_JSON", "0")
+    assert not isinstance(_resolve_formatter(None), JsonFormatter)

@@ -1,6 +1,8 @@
 import asyncio
 import time
-from llmagpie import MakeNode, BaseNode, BasePipeline
+
+from llmagpie import BaseNode, BasePipeline, MakeNode
+
 
 @MakeNode.from_class(func_name="_trigger", outputs={"outputs": str})
 class EntryNode(BaseNode):

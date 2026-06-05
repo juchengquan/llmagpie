@@ -5,7 +5,7 @@ from logging.handlers import TimedRotatingFileHandler
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from llmagpie.observability._logging import RunContextFilter
+from llmagpie.observability._logging import JsonFormatter, RunContextFilter
 
 # Timezone for log timestamps. Honors ``LLMAGPIE_LOG_TZ`` (any IANA
 # zone name); defaults to UTC. Override at process start:
@@ -85,20 +85,48 @@ LOGGING_FORMAT = (
 Formatter = CustomFormatter(LOGGING_FORMAT, datefmt="%Y-%m-%d %H:%M:%S,%f")
 
 
-def _make_handler(handler: logging.Handler) -> logging.Handler:
-    """Attach the standard level + formatter to ``handler``. The
+def _resolve_formatter(use_json: bool | None) -> logging.Formatter:
+    """Pick the formatter. ``use_json`` arg wins; falls back to the
+    ``LLMAGPIE_LOG_JSON`` env var (truthy values: ``1``, ``true``,
+    ``yes``, case-insensitive); defaults to the text formatter."""
+    if use_json is None:
+        env = os.environ.get("LLMAGPIE_LOG_JSON", "").strip().lower()
+        use_json = env in {"1", "true", "yes", "on"}
+    return JsonFormatter() if use_json else Formatter
+
+
+def _make_handler(
+    handler: logging.Handler, *, formatter: logging.Formatter | None = None
+) -> logging.Handler:
+    """Attach the level + formatter to ``handler``. The
     :class:`RunContextFilter` lives on the logger (see
     :func:`DefaultLogger`) so it covers handlers attached later as
     well."""
     handler.setLevel(logging.INFO)
-    handler.setFormatter(Formatter)
+    handler.setFormatter(formatter or Formatter)
     return handler
 
 
-def get_or_create_logger(logger_name: str = "default", file_path: str | None = None):
+def get_or_create_logger(
+    logger_name: str = "default",
+    file_path: str | None = None,
+    *,
+    json: bool | None = None,
+):
     """Get or create the named logger, wired with the stream handler
-    (and optionally a rotating file handler when ``LOG_DIR`` is set)."""
-    streamhandler = _make_handler(logging.StreamHandler())
+    (and optionally a rotating file handler when ``LOG_DIR`` is set).
+
+    Args:
+        logger_name: The logger name. Idempotent — calling twice with
+            the same name returns the same logger.
+        file_path: Reserved (unused for now; matches the historical
+            signature).
+        json: When True, attach the :class:`JsonFormatter` instead of
+            the default text one. When ``None`` (default), the
+            ``LLMAGPIE_LOG_JSON`` env var decides.
+    """
+    formatter = _resolve_formatter(json)
+    streamhandler = _make_handler(logging.StreamHandler(), formatter=formatter)
 
     if not file_path:
         log_path = os.getenv("LOG_DIR")
@@ -107,7 +135,8 @@ def get_or_create_logger(logger_name: str = "default", file_path: str | None = N
             file_path = f"{log_path}/info.log"
 
             filehandler = _make_handler(
-                TimedRotatingFileHandler(filename=file_path, interval=1, when="d")
+                TimedRotatingFileHandler(filename=file_path, interval=1, when="d"),
+                formatter=formatter,
             )
 
             logger = DefaultLogger(name=logger_name, handlers=[streamhandler, filehandler])

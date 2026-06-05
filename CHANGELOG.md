@@ -8,6 +8,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Observability surface** under `libs/llmagpie/observability/`:
+  - `RunContext` ContextVar carries `run_id` / `agent` / `supervisor`
+    / `worker` / `depth` / `thread_id` / `delegation_trace` through
+    every framework entry point. Propagates across `await` and
+    across `ThreadPoolExecutor` (per-submission `copy_context()` in
+    `ToolsNode.fire`).
+  - `format_error(exc)` renders any framework exception with the
+    `RunContext` block, the `DelegationTrace` tree, and well-known
+    extras (budget, last_content). `attach_context(exc)` stamps the
+    current context onto an exception; idempotent.
+  - `RunContextFilter` injects correlation fields onto every
+    `LogRecord`. Default text format now includes `run_id=` /
+    `agent=` / `worker=`. Log timezone is configurable via
+    `LLMAGPIE_LOG_TZ` (defaults to UTC; replaces the previously
+    hardcoded `Asia/Singapore`).
+  - `JsonFormatter` emits one JSON object per log line for
+    aggregators (Loki / Cloud Logging / Datadog). Opt-in via
+    `get_or_create_logger(json=True)` or `LLMAGPIE_LOG_JSON=1`.
+    Caller-supplied `extra={...}` fields pass through as top-level
+    keys.
+  - GenAI semconv OTel spans: `agent_span` (`openinference.span.kind=
+    AGENT`), `handoff_span` (`CHAIN`, `llmagpie.handoff.*`),
+    `tool_span` (`TOOL`), `chat_span` (`LLM`,
+    `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`,
+    `gen_ai.request.model`, `gen_ai.response.finish_reasons`,
+    `gen_ai.system`). All four no-op when `opentelemetry` isn't
+    installed or no tracer provider is registered.
+  - `BaseLLMNode._complete_traced` wraps each provider round-trip in
+    a `chat_span` and stamps GenAI attrs from the `LLMResponse`.
+    `_provider_system_name` walks the wrapper chain
+    (Memory → Cache → … → Provider) so `gen_ai.system` reports the
+    real provider, not "memory".
+  - Debug-mode runtime capture: `Agent(debug=True)` /
+    `Supervisor(debug=True)` writes a per-agent JSONL tape at
+    `<debug_dir>/<run_id8>__<agent>.jsonl` (default `./.llmagpie-debug/`).
+    Tape sink is a ContextVar — supervisor/worker isolation falls
+    out of nesting. Tape path is exposed on
+    `AgentResult.tape_path` / `SupervisorResult.tape_path`.
+- `BudgetExceededError` (existing) now carries a `run_context`
+  attribute populated by `attach_context` at the entry point's
+  except block.
+- Worked end-to-end demo:
+  `_examples/agents/supervisor_with_debugging.py` — supervisor with
+  `debug=True`, intentional budget trip, `format_error` post-mortem,
+  per-worker tape listing.
+
+### Changed
+- `Agent.__init__` / `Supervisor.__init__` accept `debug: bool` and
+  `debug_dir: str | Path | None`. Default behavior unchanged.
+
+### Fixed
+- `ToolsNode.fire` now snapshots `contextvars.copy_context()` per
+  submission before `executor.submit(ctx.run, _tool.run, ...)`. A
+  single Context can't be entered concurrently, so each parallel
+  tool call needs its own copy.
+
 - **Multi-agent supervisor/worker orchestration**
   (`experimental/orchestration/`). New `Supervisor` class subclasses
   `Agent` and delegates to worker `Agent`s via tool calls. Workers
