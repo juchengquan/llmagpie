@@ -169,9 +169,7 @@ def agent_span(
 
 
 @contextmanager
-def handoff_span(
-    *, source: str, target: str, task: str, depth: int
-) -> Iterator[Any]:
+def handoff_span(*, source: str, target: str, task: str, depth: int) -> Iterator[Any]:
     """Open a ``handoff`` span around a supervisor → worker dispatch.
 
     Stamps:

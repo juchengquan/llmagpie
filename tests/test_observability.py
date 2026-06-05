@@ -154,9 +154,7 @@ def test_context_propagates_across_thread_pool_via_tools_node():
     async def _run():
         with push(sentinel_ctx):
             await tools_node.async_call_(
-                tool_calls_list=[
-                    {"function": {"name": "probe", "arguments": '{"marker": "hi"}'}}
-                ]
+                tool_calls_list=[{"function": {"name": "probe", "arguments": '{"marker": "hi"}'}}]
             )
 
     asyncio.run(_run())
@@ -341,9 +339,7 @@ def test_format_error_surfaces_budget_extras():
 def test_format_trace_returns_string_for_delegation_trace():
     from llmagpie.experimental.orchestration import DelegationTrace
 
-    trace = DelegationTrace(
-        worker="root", task="t", depth=0, started_at=0.0, ended_at=0.5
-    )
+    trace = DelegationTrace(worker="root", task="t", depth=0, started_at=0.0, ended_at=0.5)
     out = format_trace(trace)
     assert "root" in out
     assert out == trace.format()

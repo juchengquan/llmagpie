@@ -250,9 +250,7 @@ def test_handoff_span_parents_worker_agent_span(otel_exporter):
 
     spans = otel_exporter.get_finished_spans()
     handoff = next(s for s in spans if s.name.startswith("handoff"))
-    worker_invoke = next(
-        s for s in spans if s.name.startswith("invoke_agent researcher")
-    )
+    worker_invoke = next(s for s in spans if s.name.startswith("invoke_agent researcher"))
     supervise = next(s for s in spans if s.name.startswith("supervise"))
 
     # OpenTelemetry uses parent_span_id (uint64 form) — compare against

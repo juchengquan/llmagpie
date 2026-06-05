@@ -81,9 +81,7 @@ class TapeWriter:
         self._count += 1
 
 
-_active_tape: ContextVar[TapeWriter | None] = ContextVar(
-    "llmagpie_active_tape", default=None
-)
+_active_tape: ContextVar[TapeWriter | None] = ContextVar("llmagpie_active_tape", default=None)
 
 
 def current_tape() -> TapeWriter | None:
@@ -110,9 +108,7 @@ def capture_to(path: Path | str, *, agent_label: str | None = None) -> Iterator[
         _active_tape.reset(token)
 
 
-def resolve_debug_path(
-    *, debug_dir: Path | str | None, run_id: str, agent_label: str
-) -> Path:
+def resolve_debug_path(*, debug_dir: Path | str | None, run_id: str, agent_label: str) -> Path:
     """Build the per-run tape file path::
 
         <debug_dir>/<run_id_8>__<agent_label>.jsonl

@@ -208,9 +208,7 @@ def test_supervisor_and_worker_get_separate_tapes_when_both_debug(tmp_path: Path
     assert len(prefixes) == 1
 
     sup_tape = next(p for p in tmp_path.iterdir() if p.name.endswith("__planner.jsonl"))
-    worker_tape = next(
-        p for p in tmp_path.iterdir() if p.name.endswith("__researcher.jsonl")
-    )
+    worker_tape = next(p for p in tmp_path.iterdir() if p.name.endswith("__researcher.jsonl"))
     sup_entries = _read_tape(sup_tape)
     worker_entries = _read_tape(worker_tape)
 

@@ -78,7 +78,7 @@ def DefaultLogger(name: str, handlers: list[logging.Handler] | None = None, *arg
 # ``-`` placeholders when no run is in flight, so the format string is
 # always satisfied.
 LOGGING_FORMAT = (
-    '[%(asctime)s] run_id=%(run_id)s agent=%(agent)s worker=%(worker)s '
+    "[%(asctime)s] run_id=%(run_id)s agent=%(agent)s worker=%(worker)s "
     'level=%(levelname)s name="%(name)s" filename="%(filename)s" '
     'lineno=%(lineno)d msg="%(message)s"'
 )
