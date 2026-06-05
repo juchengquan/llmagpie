@@ -1,4 +1,5 @@
 # from collections import OrderedDict
+import contextvars
 import json
 from concurrent.futures import ThreadPoolExecutor
 
@@ -40,6 +41,15 @@ class ToolsNode(BaseNode):
                     function_args = ele["function"]
                     ele["id"] = ele.get("id", uuid4().hex)
 
+                    # Snapshot the caller's contextvars *per submission*
+                    # so tools running on the executor's worker threads
+                    # see the active ``RunContext``. A fresh copy per
+                    # submission is required: ``Context.run()`` cannot
+                    # be entered concurrently on the same Context, so
+                    # parallel tool calls need independent Context
+                    # objects.
+                    ctx = contextvars.copy_context()
+
                     try:
                         _tool = self.tools_with_mapping[function_args["name"]]
                         args = function_args["arguments"]
@@ -47,7 +57,7 @@ class ToolsNode(BaseNode):
                             args = json.loads(args)
 
                         self.logger.info(f"Running tool: {_tool.name}")
-                        future = executor.submit(_tool.run, **args)
+                        future = executor.submit(ctx.run, _tool.run, **args)  # type: ignore[arg-type]
 
                     except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
                         self.logger.warning(f"Tool dispatch failed for {function_args!r}: {exc}")
@@ -55,7 +65,7 @@ class ToolsNode(BaseNode):
                         def _failed(exc: Exception = exc) -> Exception:
                             return Exception(f"Function argument is wrong: {exc}")
 
-                        future = executor.submit(_failed)
+                        future = executor.submit(ctx.run, _failed)
                     ele["_f"] = future
 
             _result = [

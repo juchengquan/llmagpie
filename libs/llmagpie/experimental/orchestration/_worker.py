@@ -21,6 +21,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmagpie.base.node import BaseNode, MakeNode
+from llmagpie.observability import derive, push
 
 from ..nodes.generators._base import LLMUsage
 
@@ -163,18 +164,24 @@ class WorkerHandle(BaseNode):
             "default" if self.persistent_thread else f"_worker_{self.name}_{depth}_{id(messages)}"
         )
 
-        try:
-            # Drive the worker's loop. We use _drive (not run) because we already
-            # built the messages list and we want the raw LLMResponse + usage back
-            # without going through the schema-repair branch (the worker's own
-            # response_schema, if set, still applies inside agent.run()).
-            agent_result = await self.agent.run(messages, thread_id=thread_id)
-        except Exception as e:
-            return WorkerResult(
-                worker=self.name,
-                content="",
-                error=f"{type(e).__name__}: {e}",
-            )
+        # Worker frame inherits run_id / supervisor / delegation_trace
+        # from the supervisor and stamps its own ``worker`` name and
+        # ``depth`` so log lines / traces emitted inside the worker's
+        # Agent.run() are attributable.
+        ctx = derive(worker=self.name, depth=depth)
+        with push(ctx):
+            try:
+                # Drive the worker's loop. We use _drive (not run) because we already
+                # built the messages list and we want the raw LLMResponse + usage back
+                # without going through the schema-repair branch (the worker's own
+                # response_schema, if set, still applies inside agent.run()).
+                agent_result = await self.agent.run(messages, thread_id=thread_id)
+            except Exception as e:
+                return WorkerResult(
+                    worker=self.name,
+                    content="",
+                    error=f"{type(e).__name__}: {e}",
+                )
 
         return WorkerResult(
             worker=self.name,

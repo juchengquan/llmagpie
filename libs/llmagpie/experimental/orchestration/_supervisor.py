@@ -20,8 +20,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmagpie.base.node import BaseNode
+from llmagpie.observability import attach_context, derive, push
 
-from ..agent import Agent, AgentResult, BudgetExceededError
+from ..agent import Agent, AgentResult
 from ..nodes.generators._base import LLMResponse, LLMUsage, StreamChunk
 from ..nodes.generators.cache import CacheBackend
 from ..nodes.generators.memory import MemoryStore
@@ -169,29 +170,46 @@ class Supervisor(Agent):
         self._current_depth = _depth
         self._delegation_count = 0
 
-        try:
-            base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
-            messages = self._build_messages(user_message)
-            last, total, worker_results = await self._drive_supervisor(messages, base_params)
-            self._current_trace.usage = total
-            self._current_trace.ended_at = time.monotonic()
-
-            final_content = self._finalize_content(messages, worker_results, last)
-
-            return SupervisorResult(
-                content=final_content,
-                tool_calls=last.tool_calls,
-                parsed=None,  # structured_merge populates this elsewhere; see TODO
-                usage=total,
-                raw=last,
-                trace=self._current_trace,
-                worker_results=worker_results,
-            )
-        except BudgetExceededError:
-            # Capture trace state up to the failure for observability.
-            if self._current_trace is not None:
+        # Push a RunContext for the supervisor so its workers (and any
+        # downstream Agent.run() frames) inherit run_id / supervisor /
+        # delegation_trace, and so any exception bubbles up carrying
+        # the trace as it stood at failure.
+        ctx = derive(
+            agent=self.name,
+            supervisor=self.name,
+            depth=_depth,
+            thread_id=thread_id,
+            delegation_trace=self._current_trace,
+        )
+        with push(ctx):
+            try:
+                base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
+                messages = self._build_messages(user_message)
+                last, total, worker_results = await self._drive_supervisor(messages, base_params)
+                self._current_trace.usage = total
                 self._current_trace.ended_at = time.monotonic()
-            raise
+
+                final_content = self._finalize_content(messages, worker_results, last)
+
+                return SupervisorResult(
+                    content=final_content,
+                    tool_calls=last.tool_calls,
+                    parsed=None,  # structured_merge populates this elsewhere; see TODO
+                    usage=total,
+                    raw=last,
+                    trace=self._current_trace,
+                    worker_results=worker_results,
+                    run_context=ctx,
+                )
+            except Exception as exc:
+                # Snapshot the in-flight trace state for the post-mortem
+                # before re-raising. `attach_context` is idempotent — if
+                # a deeper frame (e.g. a worker's Agent.run) already
+                # stamped its own context, that one wins.
+                if self._current_trace is not None:
+                    self._current_trace.ended_at = time.monotonic()
+                attach_context(exc, ctx)
+                raise
 
     async def stream(
         self,

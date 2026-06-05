@@ -10,6 +10,12 @@
 - The project uses `uv` + PEP 621 (`[project]` table). Build backend is
   `hatchling`. There's a `uv.lock` checked in for reproducible installs.
 - `libs/llmagpie/base/` — public-ish core. Treat as stable.
+- `libs/llmagpie/observability/` — public-ish too. Carries the
+  `RunContext` spine (a ContextVar-backed correlation object) plus
+  `format_error()` / `format_trace()` / `RunContextFilter`. Imported by
+  `base/logging/logging.py` and by the experimental `Agent` /
+  `Supervisor` / `WorkerHandle` entry points. Pure-stdlib + pydantic;
+  no OTEL or third-party deps.
 - `libs/llmagpie/core/opentelemetry/` — optional OTEL decorator. Becomes a
   no-op `EmptyWrapDecorator` if `OTEL_COLLECTOR_ENDPOINT` is unset or
   `opentelemetry` is not installed. `EmptyWrapDecorator` is the
@@ -74,6 +80,28 @@ BaseConnectable           pydantic BaseModel; carries per-session state dicts
 - Pipelines must be `.compile()`d before invocation. Compilation freezes
   the input/output schema (`func_schema.external`) and runs DAG
   validation.
+
+## Cross-cutting: `RunContext`
+
+`libs/llmagpie/observability/_context.py` owns a `RunContext` lived in
+a `contextvars.ContextVar`. Every public `run()` (`Agent`,
+`Supervisor`) and `dispatch()` (`WorkerHandle`) does
+`with push(derive(...)): ...`, so:
+
+- Logs carry `run_id` / `agent` / `worker` / `depth` (via
+  `RunContextFilter`, attached at the logger level so even pytest's
+  `caplog` sees them).
+- Framework exceptions (`BudgetExceededError`, etc.) get
+  `exc.run_context` populated by `attach_context()` in the entry
+  point's `except` block. `format_error(exc)` then renders the
+  context + delegation trace.
+- Cross-thread propagation: `ToolsNode.fire()` calls
+  `contextvars.copy_context()` **per submission** before
+  `executor.submit(ctx.run, _tool.run, ...)`. A single context can't
+  be entered concurrently, so each parallel tool call needs its own
+  copy — caught a regression mid-Phase-1.
+- Timezone for log timestamps is `LLMAGPIE_LOG_TZ` (defaults to UTC).
+  This replaced the hardcoded `Asia/Singapore` from before.
 
 ## Things that have bitten people before
 
