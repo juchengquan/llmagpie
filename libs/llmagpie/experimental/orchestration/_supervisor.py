@@ -100,6 +100,8 @@ class Supervisor(Agent):
         no_progress_window: int = 3,
         no_progress_similarity: float = 0.85,
         max_parallel_workers: int = 4,
+        debug: bool = False,
+        debug_dir: Any = None,
         name: str = "supervisor",
     ) -> None:
         # Compose all tools so the LLM sees them in `_format_tools_for_provider`.
@@ -120,6 +122,8 @@ class Supervisor(Agent):
             max_cost_per_run=max_cost_per_run,
             cost_per_1k_tokens=cost_per_1k_tokens,
             stop_condition=stop_condition,
+            debug=debug,
+            debug_dir=debug_dir,
             name=name,
         )
 
@@ -181,7 +185,13 @@ class Supervisor(Agent):
             thread_id=thread_id,
             delegation_trace=self._current_trace,
         )
-        with push(ctx), agent_span(agent_name=self.name, is_supervisor=True):
+        capture_cm = self._make_capture_cm(ctx)
+        with (
+            push(ctx),
+            agent_span(agent_name=self.name, is_supervisor=True),
+            capture_cm as tape,
+        ):
+            tape_path = tape.path if tape is not None else None
             try:
                 base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
                 messages = self._build_messages(user_message)
@@ -200,6 +210,7 @@ class Supervisor(Agent):
                     trace=self._current_trace,
                     worker_results=worker_results,
                     run_context=ctx,
+                    tape_path=tape_path,
                 )
             except Exception as exc:
                 # Snapshot the in-flight trace state for the post-mortem

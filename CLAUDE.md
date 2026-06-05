@@ -12,14 +12,16 @@
 - `libs/llmagpie/base/` — public-ish core. Treat as stable.
 - `libs/llmagpie/observability/` — public-ish too. Carries the
   `RunContext` spine (a ContextVar-backed correlation object) plus
-  `format_error()` / `format_trace()` / `RunContextFilter` and the
+  `format_error()` / `format_trace()` / `RunContextFilter`, the
   GenAI-semconv span helpers (`agent_span`, `handoff_span`,
-  `tool_span`, `chat_span`, `set_llm_attributes`). Imported by
-  `base/logging/logging.py` and by the experimental `Agent` /
-  `Supervisor` / `WorkerHandle` / `BaseLLMNode` / `ToolsNode` entry
-  points. Pure-stdlib + pydantic on the core path; `_otel.py` lazy-
-  imports `opentelemetry` and gracefully no-ops if the import fails
-  or no tracer provider is configured.
+  `tool_span`, `chat_span`, `set_llm_attributes`), and the
+  debug-mode tape sink (`capture_to`, `current_tape`, `TapeWriter`,
+  `resolve_debug_path`). Imported by `base/logging/logging.py` and
+  by the experimental `Agent` / `Supervisor` / `WorkerHandle` /
+  `BaseLLMNode` / `ToolsNode` entry points. Pure-stdlib + pydantic
+  on the core path; `_otel.py` lazy-imports `opentelemetry` and
+  gracefully no-ops if the import fails or no tracer provider is
+  configured.
 - `libs/llmagpie/core/opentelemetry/` — optional OTEL decorator. Becomes a
   no-op `EmptyWrapDecorator` if `OTEL_COLLECTOR_ENDPOINT` is unset or
   `opentelemetry` is not installed. `EmptyWrapDecorator` is the
@@ -121,6 +123,16 @@ a `contextvars.ContextVar`. Every public `run()` (`Agent`,
   not "memory". `ToolsNode.fire` opens a `tool_span` per call
   *inside* the worker thread, so the span parents correctly under
   the agent/chat span via the copied OTel context.
+- Debug-mode capture: `Agent(debug=True)` /
+  `Supervisor(debug=True)` opens a `capture_to(...)` context inside
+  `run()` so every LLM round-trip lands in a per-run JSONL tape at
+  `<debug_dir>/<run_id8>__<agent_name>.jsonl` (default `debug_dir`
+  is `./.llmagpie-debug/`). The sink is a ContextVar — `_complete_traced`
+  reads `current_tape()` after each call and appends. Nested
+  `capture_to` calls take precedence inside their block (supervisor
+  + debug-worker = two tape files; supervisor + plain worker = one
+  tape with both agents' calls). Tape path is exposed on
+  `AgentResult.tape_path` so callers don't have to compute it.
 
 ## Things that have bitten people before
 

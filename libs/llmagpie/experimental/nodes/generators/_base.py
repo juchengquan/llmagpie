@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from typing import Any, ClassVar
 
 from llmagpie.base.node import BaseNode, MakeNode
-from llmagpie.observability import chat_span, set_llm_attributes
+from llmagpie.observability import chat_span, current_tape, set_llm_attributes
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -169,6 +169,18 @@ class BaseLLMNode(BaseNode):
                 finish_reason=response.finish_reason,
                 system=system,
             )
+            # Debug-mode tape capture — no-op when no agent has
+            # ``debug=True`` (the common case). When active, the
+            # innermost capture context wins (supervisor / worker
+            # isolation falls out of ContextVar nesting).
+            tape = current_tape()
+            if tape is not None:
+                tape.write(
+                    model=model,
+                    messages=messages,
+                    kwargs=kwargs,
+                    response=response,
+                )
             return response
 
     def _provider_system_name(self) -> str:

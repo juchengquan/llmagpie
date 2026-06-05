@@ -20,12 +20,22 @@ distinct entry."""
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from llmagpie.base.node import BaseNode
-from llmagpie.observability import RunContext, agent_span, attach_context, derive, push
+from llmagpie.observability import (
+    RunContext,
+    agent_span,
+    attach_context,
+    capture_to,
+    derive,
+    push,
+    resolve_debug_path,
+)
 
 from .nodes.generators._base import BaseLLMNode, LLMResponse, LLMUsage
 from .nodes.generators.cache import CacheBackend, CachedLLMNode
@@ -91,6 +101,9 @@ class AgentResult(BaseModel):
     # correlate the result back to logs / traces / debug tapes by
     # `run_context.run_id` without holding a ContextVar reference.
     run_context: RunContext | None = None
+    # Path to the JSONL tape written when the agent ran with
+    # ``debug=True``. ``None`` for the default (no-capture) path.
+    tape_path: Path | None = None
 
 
 class Agent:
@@ -146,6 +159,8 @@ class Agent:
         max_cost_per_run: float | None = None,
         cost_per_1k_tokens: dict[str, float] | None = None,
         stop_condition: Any = None,
+        debug: bool = False,
+        debug_dir: str | Path | None = None,
         name: str = "agent",
     ) -> None:
         # Compose: tools -> memory -> cache -> raw provider.
@@ -173,6 +188,11 @@ class Agent:
         # request `cost_of(usage)` directly.
         self.cost_per_1k_tokens = cost_per_1k_tokens or {}
         self.name = name
+        # Debug-mode capture: when True, ``run()`` opens a ``capture_to``
+        # context so every LLM round-trip lands in a per-run JSONL tape
+        # under ``debug_dir`` (defaults to ``./.llmagpie-debug/``).
+        self.debug = debug
+        self.debug_dir = debug_dir
 
     def cost_of(self, usage: LLMUsage) -> float:
         """Convert an :class:`LLMUsage` to a dollar figure using the
@@ -281,7 +301,9 @@ class Agent:
         # ``derive`` inherits ``run_id`` / ``supervisor`` / ``depth``
         # from the parent and overrides only what this frame owns.
         ctx = derive(agent=self.name, thread_id=thread_id)
-        with push(ctx), agent_span(agent_name=self.name):
+        capture_cm = self._make_capture_cm(ctx)
+        with push(ctx), agent_span(agent_name=self.name), capture_cm as tape:
+            tape_path = tape.path if tape is not None else None
             try:
                 if self.response_schema is None:
                     last, total = await self._drive(messages, base_params)
@@ -292,6 +314,7 @@ class Agent:
                         usage=total,
                         raw=last,
                         run_context=ctx,
+                        tape_path=tape_path,
                     )
 
                 # Schema-validated path: drive the LLM, parse JSON, repair on
@@ -322,6 +345,7 @@ class Agent:
                             usage=cumulative,
                             raw=last_response,
                             run_context=ctx,
+                            tape_path=tape_path,
                         )
                     except (json.JSONDecodeError, ValidationError) as exc:
                         last_error = exc
@@ -348,6 +372,17 @@ class Agent:
             except Exception as exc:
                 attach_context(exc, ctx)
                 raise
+
+    def _make_capture_cm(self, ctx: RunContext) -> Any:
+        """Build the capture context for this run. Returns a real
+        :func:`capture_to` ctx when ``debug=True``, else a null ctx
+        that yields ``None`` so callers can branch on the value."""
+        if not self.debug:
+            return nullcontext(None)
+        path = resolve_debug_path(
+            debug_dir=self.debug_dir, run_id=ctx.run_id, agent_label=self.name
+        )
+        return capture_to(path, agent_label=self.name)
 
     async def stream(
         self,

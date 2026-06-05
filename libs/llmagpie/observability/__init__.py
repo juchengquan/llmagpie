@@ -15,6 +15,7 @@ log filter are used by the framework's own entry points; most user
 code shouldn't need to call them directly.
 """
 
+from ._capture import TapeWriter, capture_to, current_tape, resolve_debug_path
 from ._context import RunContext, current, derive, push
 from ._errors import attach_context
 from ._format import format_error, format_trace
@@ -34,15 +35,19 @@ current_context = current
 __all__ = [
     "RunContext",
     "RunContextFilter",
+    "TapeWriter",
     "agent_span",
     "attach_context",
+    "capture_to",
     "chat_span",
     "current_context",
+    "current_tape",
     "derive",
     "format_error",
     "format_trace",
     "handoff_span",
     "push",
+    "resolve_debug_path",
     "set_llm_attributes",
     "tool_span",
 ]
