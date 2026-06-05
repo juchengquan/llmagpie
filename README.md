@@ -97,6 +97,54 @@ streaming, multi-input merge — live in [`_examples/simple_composition/`](_exam
 | Async-iterator streaming output between steps | `single_streaming.py` |
 | Composing a pipeline as a node inside an outer pipeline | `nested_pipeline.py`, `chained_with_pipe.py`, `chained_nested_pipe.py` |
 
+## Multi-agent (supervisor / worker)
+
+A `Supervisor` is an `Agent` that delegates to other agents via tool calls:
+
+```python
+from llmagpie.experimental.agent import Agent
+from llmagpie.experimental.orchestration import Supervisor
+
+researcher = Agent(llm=..., model="...", system_prompt="You find sources.")
+writer     = Agent(llm=..., model="...", system_prompt="You draft summaries.")
+
+supervisor = Supervisor(
+    llm=..., model="...",
+    system_prompt="Delegate to `researcher` then `writer`.",
+    workers=[
+        researcher.as_worker(name="researcher", description="Find sources on a topic."),
+        writer.as_worker(name="writer", description="Draft a summary from sources."),
+    ],
+    max_delegations=10,
+    max_tokens_per_run=50_000,
+)
+
+result = await supervisor.run("Write a brief on Mamba SSMs.")
+print(result.content)
+print(result.usage.total_tokens)          # cumulative across supervisor + workers
+print(result.trace.format())              # delegation tree
+```
+
+Highlights:
+
+- **Handoff is a tool call.** Workers surface as tools named `transfer_to_<name>`.
+  Worker-name and arg validation happen at the dispatch boundary — hallucinated
+  names become tool-error messages, not exceptions.
+- **Context handoff is configurable per worker.** Default is `task_only` (worker
+  sees just the task string + its own system prompt); `task_plus_history` and
+  `shared_scratchpad` available via `as_worker(..., context_handoff="...")`.
+- **Parallel fan-out.** When the supervisor emits multiple worker tool calls in
+  one round, they run concurrently under `asyncio.TaskGroup`, bounded by
+  `max_parallel_workers`.
+- **Streaming.** `Supervisor.stream(...)` yields `SupervisorChunk` events
+  carrying the supervisor's own tokens plus `start`/`end` boundary markers
+  around each worker invocation.
+- **Budget enforcement** rolls up across nested agents. `BudgetExceededError`
+  fires on the next round-trip after the cumulative usage exceeds the cap.
+
+Runnable end-to-end demo with mock LLMs:
+[`_examples/agents/supervisor_basic.py`](_examples/agents/supervisor_basic.py).
+
 ## Mental model
 
 ```

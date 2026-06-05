@@ -429,3 +429,35 @@ class Agent:
                 await node.store.clear(thread_id)
                 return
             node = getattr(node, "inner", None)
+
+    def as_worker(
+        self,
+        name: str,
+        description: str,
+        *,
+        context_handoff: Any = "task_only",
+        history_window: int = 6,
+        persistent_thread: bool = False,
+    ) -> Any:
+        """Wrap this agent as a :class:`WorkerHandle` for use by a
+        :class:`Supervisor`.
+
+        ``name`` becomes the tool name the supervisor's LLM sees
+        (prefixed with ``transfer_to_``). ``description`` should be
+        action-oriented ("Use to gather authoritative sources on a
+        topic.") so the supervisor's LLM knows when to delegate.
+
+        See :class:`llmagpie.experimental.orchestration.WorkerHandle`
+        for the full parameter reference.
+        """
+        # Lazy import to avoid a circular dependency (orchestration imports Agent).
+        from .orchestration._worker import WorkerHandle
+
+        return WorkerHandle(
+            name=name,
+            description=description,
+            agent=self,
+            context_handoff=context_handoff,
+            history_window=history_window,
+            persistent_thread=persistent_thread,
+        )
