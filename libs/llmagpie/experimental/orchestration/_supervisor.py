@@ -20,8 +20,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmagpie.base.node import BaseNode
+from llmagpie.observability import agent_span, attach_context, derive, push
 
-from ..agent import Agent, AgentResult, BudgetExceededError
+from ..agent import Agent, AgentResult
 from ..nodes.generators._base import LLMResponse, LLMUsage, StreamChunk
 from ..nodes.generators.cache import CacheBackend
 from ..nodes.generators.memory import MemoryStore
@@ -99,6 +100,8 @@ class Supervisor(Agent):
         no_progress_window: int = 3,
         no_progress_similarity: float = 0.85,
         max_parallel_workers: int = 4,
+        debug: bool = False,
+        debug_dir: Any = None,
         name: str = "supervisor",
     ) -> None:
         # Compose all tools so the LLM sees them in `_format_tools_for_provider`.
@@ -119,6 +122,8 @@ class Supervisor(Agent):
             max_cost_per_run=max_cost_per_run,
             cost_per_1k_tokens=cost_per_1k_tokens,
             stop_condition=stop_condition,
+            debug=debug,
+            debug_dir=debug_dir,
             name=name,
         )
 
@@ -169,29 +174,53 @@ class Supervisor(Agent):
         self._current_depth = _depth
         self._delegation_count = 0
 
-        try:
-            base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
-            messages = self._build_messages(user_message)
-            last, total, worker_results = await self._drive_supervisor(messages, base_params)
-            self._current_trace.usage = total
-            self._current_trace.ended_at = time.monotonic()
-
-            final_content = self._finalize_content(messages, worker_results, last)
-
-            return SupervisorResult(
-                content=final_content,
-                tool_calls=last.tool_calls,
-                parsed=None,  # structured_merge populates this elsewhere; see TODO
-                usage=total,
-                raw=last,
-                trace=self._current_trace,
-                worker_results=worker_results,
-            )
-        except BudgetExceededError:
-            # Capture trace state up to the failure for observability.
-            if self._current_trace is not None:
+        # Push a RunContext for the supervisor so its workers (and any
+        # downstream Agent.run() frames) inherit run_id / supervisor /
+        # delegation_trace, and so any exception bubbles up carrying
+        # the trace as it stood at failure.
+        ctx = derive(
+            agent=self.name,
+            supervisor=self.name,
+            depth=_depth,
+            thread_id=thread_id,
+            delegation_trace=self._current_trace,
+        )
+        capture_cm = self._make_capture_cm(ctx)
+        with (
+            push(ctx),
+            agent_span(agent_name=self.name, is_supervisor=True),
+            capture_cm as tape,
+        ):
+            tape_path = tape.path if tape is not None else None
+            try:
+                base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
+                messages = self._build_messages(user_message)
+                last, total, worker_results = await self._drive_supervisor(messages, base_params)
+                self._current_trace.usage = total
                 self._current_trace.ended_at = time.monotonic()
-            raise
+
+                final_content = self._finalize_content(messages, worker_results, last)
+
+                return SupervisorResult(
+                    content=final_content,
+                    tool_calls=last.tool_calls,
+                    parsed=None,  # structured_merge populates this elsewhere; see TODO
+                    usage=total,
+                    raw=last,
+                    trace=self._current_trace,
+                    worker_results=worker_results,
+                    run_context=ctx,
+                    tape_path=tape_path,
+                )
+            except Exception as exc:
+                # Snapshot the in-flight trace state for the post-mortem
+                # before re-raising. `attach_context` is idempotent — if
+                # a deeper frame (e.g. a worker's Agent.run) already
+                # stamped its own context, that one wins.
+                if self._current_trace is not None:
+                    self._current_trace.ended_at = time.monotonic()
+                attach_context(exc, ctx)
+                raise
 
     async def stream(
         self,
@@ -356,7 +385,7 @@ class Supervisor(Agent):
 
         # First LLM call goes through self._llm._complete so memory/cache/provider
         # composition all apply.
-        response = await self._llm._complete(self.model, messages, **kwargs)
+        response = await self._llm._complete_traced(self.model, messages, **kwargs)
         total = _accumulate(total, response.usage)
         self._enforce_budget(total)
         progress.observe(response)
@@ -446,7 +475,7 @@ class Supervisor(Agent):
                     )
 
             # Next LLM round.
-            response = await self._llm._complete(self.model, messages, **kwargs)
+            response = await self._llm._complete_traced(self.model, messages, **kwargs)
             total = _accumulate(total, response.usage)
             self._enforce_budget(total)
             progress.observe(response)

@@ -10,6 +10,18 @@
 - The project uses `uv` + PEP 621 (`[project]` table). Build backend is
   `hatchling`. There's a `uv.lock` checked in for reproducible installs.
 - `libs/llmagpie/base/` — public-ish core. Treat as stable.
+- `libs/llmagpie/observability/` — public-ish too. Carries the
+  `RunContext` spine (a ContextVar-backed correlation object) plus
+  `format_error()` / `format_trace()` / `RunContextFilter`, the
+  GenAI-semconv span helpers (`agent_span`, `handoff_span`,
+  `tool_span`, `chat_span`, `set_llm_attributes`), and the
+  debug-mode tape sink (`capture_to`, `current_tape`, `TapeWriter`,
+  `resolve_debug_path`). Imported by `base/logging/logging.py` and
+  by the experimental `Agent` / `Supervisor` / `WorkerHandle` /
+  `BaseLLMNode` / `ToolsNode` entry points. Pure-stdlib + pydantic
+  on the core path; `_otel.py` lazy-imports `opentelemetry` and
+  gracefully no-ops if the import fails or no tracer provider is
+  configured.
 - `libs/llmagpie/core/opentelemetry/` — optional OTEL decorator. Becomes a
   no-op `EmptyWrapDecorator` if `OTEL_COLLECTOR_ENDPOINT` is unset or
   `opentelemetry` is not installed. `EmptyWrapDecorator` is the
@@ -74,6 +86,53 @@ BaseConnectable           pydantic BaseModel; carries per-session state dicts
 - Pipelines must be `.compile()`d before invocation. Compilation freezes
   the input/output schema (`func_schema.external`) and runs DAG
   validation.
+
+## Cross-cutting: `RunContext`
+
+`libs/llmagpie/observability/_context.py` owns a `RunContext` lived in
+a `contextvars.ContextVar`. Every public `run()` (`Agent`,
+`Supervisor`) and `dispatch()` (`WorkerHandle`) does
+`with push(derive(...)): ...`, so:
+
+- Logs carry `run_id` / `agent` / `worker` / `depth` (via
+  `RunContextFilter`, attached at the logger level so even pytest's
+  `caplog` sees them).
+- Framework exceptions (`BudgetExceededError`, etc.) get
+  `exc.run_context` populated by `attach_context()` in the entry
+  point's `except` block. `format_error(exc)` then renders the
+  context + delegation trace.
+- Cross-thread propagation: `ToolsNode.fire()` calls
+  `contextvars.copy_context()` **per submission** before
+  `executor.submit(ctx.run, _tool.run, ...)`. A single context can't
+  be entered concurrently, so each parallel tool call needs its own
+  copy — caught a regression mid-Phase-1.
+- Timezone for log timestamps is `LLMAGPIE_LOG_TZ` (defaults to UTC).
+  This replaced the hardcoded `Asia/Singapore` from before.
+- GenAI semconv spans: `Agent.run` / `Supervisor.run` open
+  `agent_span` (`openinference.span.kind=AGENT`,
+  `gen_ai.agent.name=<name>`). `WorkerHandle.dispatch` opens
+  `handoff_span` (`openinference.span.kind=CHAIN`,
+  `llmagpie.handoff.{source,target,depth,task_preview}`). Each
+  provider round-trip goes through `BaseLLMNode._complete_traced`
+  which opens a `chat_span` and stamps `gen_ai.usage.input_tokens`
+  / `output_tokens` / `gen_ai.request.model` / `gen_ai.system` /
+  `gen_ai.response.finish_reasons` from the `LLMResponse`. The
+  `system` value is derived by walking the wrapper chain (Memory →
+  Cache → … → Provider) to the leaf and reading its
+  `provider_name` ClassVar, so the span reports the real provider,
+  not "memory". `ToolsNode.fire` opens a `tool_span` per call
+  *inside* the worker thread, so the span parents correctly under
+  the agent/chat span via the copied OTel context.
+- Debug-mode capture: `Agent(debug=True)` /
+  `Supervisor(debug=True)` opens a `capture_to(...)` context inside
+  `run()` so every LLM round-trip lands in a per-run JSONL tape at
+  `<debug_dir>/<run_id8>__<agent_name>.jsonl` (default `debug_dir`
+  is `./.llmagpie-debug/`). The sink is a ContextVar — `_complete_traced`
+  reads `current_tape()` after each call and appends. Nested
+  `capture_to` calls take precedence inside their block (supervisor
+  + debug-worker = two tape files; supervisor + plain worker = one
+  tape with both agents' calls). Tape path is exposed on
+  `AgentResult.tape_path` so callers don't have to compute it.
 
 ## Things that have bitten people before
 

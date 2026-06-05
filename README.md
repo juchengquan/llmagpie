@@ -175,10 +175,63 @@ The suite combines unit tests in [`tests/test_basics.py`](tests/test_basics.py)
 with example-runner smoke tests in [`tests/test_examples.py`](tests/test_examples.py)
 that exercise every file under `_examples/simple_composition/`.
 
-## OpenTelemetry
+## Debugging & observability
 
-Set `OTEL_COLLECTOR_ENDPOINT` to enable OTLP HTTP tracing; otherwise the
-tracer decorator is a no-op. See `libs/llmagpie/core/opentelemetry/_wrapper.py`.
+llmagpie carries a small observability surface under
+[`libs/llmagpie/observability/`](libs/llmagpie/observability/) that
+hooks `Agent` / `Supervisor` / `WorkerHandle` / `BaseLLMNode` /
+`ToolsNode` automatically. All four pieces share a single
+`RunContext` correlation id so logs, traces, exceptions, and debug
+tapes all line up under one `run_id`:
+
+```python
+from llmagpie.experimental.agent import Agent, BudgetExceededError
+from llmagpie.observability import format_error
+
+agent = Agent(
+    llm=my_llm, model="gpt-4o", name="researcher",
+    debug=True,                                # write every LLM call to disk
+    debug_dir="./.llmagpie-debug",             # default; gitignore it
+    max_tokens_per_run=10_000,
+)
+
+try:
+    result = await agent.run("Find sources on Mamba SSMs.")
+except BudgetExceededError as exc:
+    print(format_error(exc))                   # rich post-mortem
+    raise
+```
+
+What you get:
+
+- **Correlation** — every log line carries `run_id=...`, `agent=...`,
+  `worker=...`. Configurable timezone via `LLMAGPIE_LOG_TZ` (defaults
+  to UTC). JSON-structured logs via `get_or_create_logger(json=True)`
+  or `LLMAGPIE_LOG_JSON=1`.
+- **OTel GenAI semantic conventions** — `Agent.run` / `Supervisor.run`
+  emit `invoke_agent` spans, `WorkerHandle.dispatch` emits `handoff`,
+  each provider round-trip emits `chat` with `gen_ai.usage.*` /
+  `gen_ai.system` attributes, `ToolsNode.fire` emits `execute_tool`.
+  Phoenix / Arize / LangSmith / Langfuse render the tree out of the
+  box. No-op when `opentelemetry` isn't installed.
+- **Error post-mortems** — `format_error(exc)` renders the
+  `RunContext` (run_id, agent, supervisor, worker, depth, thread),
+  the in-flight `DelegationTrace`, and well-known extras like the
+  budget that was tripped. Works on any exception that bubbled
+  through `Agent.run` / `Supervisor.run`.
+- **Debug-mode capture** — `debug=True` writes a per-agent JSONL
+  tape at `<debug_dir>/<run_id8>__<agent>.jsonl`. Each entry has the
+  full request (model, messages, kwargs) and response. Diff-friendly
+  for assertions; re-playable into `RecordReplayLLMNode`.
+  Supervisor + worker isolation is automatic: when both have
+  `debug=True`, each gets its own tape file; when only the
+  supervisor does, worker calls land in the supervisor's tape.
+
+Runnable end-to-end demo:
+[`_examples/agents/supervisor_with_debugging.py`](_examples/agents/supervisor_with_debugging.py).
+
+To enable OTLP HTTP export, set `OTEL_COLLECTOR_ENDPOINT` — see
+[`libs/llmagpie/core/opentelemetry/_wrapper.py`](libs/llmagpie/core/opentelemetry/_wrapper.py).
 
 ## License
 

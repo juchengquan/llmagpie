@@ -20,11 +20,22 @@ distinct entry."""
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from llmagpie.base.node import BaseNode
+from llmagpie.observability import (
+    RunContext,
+    agent_span,
+    attach_context,
+    capture_to,
+    derive,
+    push,
+    resolve_debug_path,
+)
 
 from .nodes.generators._base import BaseLLMNode, LLMResponse, LLMUsage
 from .nodes.generators.cache import CacheBackend, CachedLLMNode
@@ -38,7 +49,12 @@ class BudgetExceededError(RuntimeError):
     """Raised by :class:`Agent` when a single ``run()`` would exceed
     the caller-supplied token or cost ceiling. ``usage_so_far`` reflects
     the cumulative consumption up to (and including) the last
-    completed provider call before the budget was tripped."""
+    completed provider call before the budget was tripped.
+
+    When raised inside a framework entry point, ``run_context`` is
+    populated by :func:`llmagpie.observability.attach_context` so the
+    post-mortem helper can render the in-flight delegation trace.
+    """
 
     def __init__(
         self,
@@ -52,6 +68,9 @@ class BudgetExceededError(RuntimeError):
         self.usage_so_far = usage_so_far
         self.budget_limit = budget_limit
         self.budget_dimension = budget_dimension
+        # Populated by attach_context() when the error bubbles through
+        # an Agent/Supervisor entry point. None outside of a run.
+        self.run_context: RunContext | None = None
 
 
 class AgentResult(BaseModel):
@@ -78,6 +97,13 @@ class AgentResult(BaseModel):
     parsed: BaseModel | None = None
     usage: LLMUsage = Field(default_factory=LLMUsage)
     raw: LLMResponse
+    # Snapshot of the RunContext that owned the run. Lets callers
+    # correlate the result back to logs / traces / debug tapes by
+    # `run_context.run_id` without holding a ContextVar reference.
+    run_context: RunContext | None = None
+    # Path to the JSONL tape written when the agent ran with
+    # ``debug=True``. ``None`` for the default (no-capture) path.
+    tape_path: Path | None = None
 
 
 class Agent:
@@ -133,6 +159,8 @@ class Agent:
         max_cost_per_run: float | None = None,
         cost_per_1k_tokens: dict[str, float] | None = None,
         stop_condition: Any = None,
+        debug: bool = False,
+        debug_dir: str | Path | None = None,
         name: str = "agent",
     ) -> None:
         # Compose: tools -> memory -> cache -> raw provider.
@@ -160,6 +188,11 @@ class Agent:
         # request `cost_of(usage)` directly.
         self.cost_per_1k_tokens = cost_per_1k_tokens or {}
         self.name = name
+        # Debug-mode capture: when True, ``run()`` opens a ``capture_to``
+        # context so every LLM round-trip lands in a per-run JSONL tape
+        # under ``debug_dir`` (defaults to ``./.llmagpie-debug/``).
+        self.debug = debug
+        self.debug_dir = debug_dir
 
     def cost_of(self, usage: LLMUsage) -> float:
         """Convert an :class:`LLMUsage` to a dollar figure using the
@@ -263,66 +296,93 @@ class Agent:
         base_params: dict[str, Any] = {"thread_id": thread_id, **(params or {})}
         messages = self._build_messages(user_message)
 
-        if self.response_schema is None:
-            last, total = await self._drive(messages, base_params)
-            return AgentResult(
-                content=last.content,
-                tool_calls=last.tool_calls,
-                parsed=None,
-                usage=total,
-                raw=last,
-            )
-
-        # Schema-validated path: drive the LLM, parse JSON, repair on
-        # failure. The repair loop mirrors call_with_schema's, but here
-        # we have the LLMResponse handy so we can return it (and the
-        # cumulative usage) alongside the parsed model.
-        attempts = self.repair_attempts + 1
-        last_response: LLMResponse | None = None
-        last_error: Exception | None = None
-        last_content = ""
-        cumulative = LLMUsage()
-
-        for attempt in range(attempts):
-            last_response, turn_usage = await self._drive(messages, base_params)
-            cumulative.prompt_tokens += turn_usage.prompt_tokens
-            cumulative.completion_tokens += turn_usage.completion_tokens
-            cumulative.total_tokens += turn_usage.total_tokens
-            last_content = last_response.content
-
+        # Enter a fresh ``RunContext`` (or a child of an outer one when
+        # this Agent is nested inside a Supervisor / WorkerHandle).
+        # ``derive`` inherits ``run_id`` / ``supervisor`` / ``depth``
+        # from the parent and overrides only what this frame owns.
+        ctx = derive(agent=self.name, thread_id=thread_id)
+        capture_cm = self._make_capture_cm(ctx)
+        with push(ctx), agent_span(agent_name=self.name), capture_cm as tape:
+            tape_path = tape.path if tape is not None else None
             try:
-                payload = _extract_json_payload(last_content)
-                data = json.loads(payload)
-                parsed = self.response_schema.model_validate(data)
-                return AgentResult(
-                    content=last_content,
-                    tool_calls=last_response.tool_calls,
-                    parsed=parsed,
-                    usage=cumulative,
-                    raw=last_response,
-                )
-            except (json.JSONDecodeError, ValidationError) as exc:
-                last_error = exc
-                if attempt + 1 >= attempts:
-                    break
-                messages.append({"role": "assistant", "content": last_content})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "Your previous response did not parse as the expected schema. "
-                            f"Error: {exc}\n\nReturn ONLY a JSON object matching this schema "
-                            "(no prose, no fences):\n"
-                            f"{json.dumps(self.response_schema.model_json_schema())}"
-                        ),
-                    }
-                )
+                if self.response_schema is None:
+                    last, total = await self._drive(messages, base_params)
+                    return AgentResult(
+                        content=last.content,
+                        tool_calls=last.tool_calls,
+                        parsed=None,
+                        usage=total,
+                        raw=last,
+                        run_context=ctx,
+                        tape_path=tape_path,
+                    )
 
-        raise StructuredOutputError(
-            f"{self.name}: LLM output did not match schema after {attempts} attempt(s): {last_error}",
-            last_content=last_content,
-            last_error=last_error or RuntimeError("unknown"),
+                # Schema-validated path: drive the LLM, parse JSON, repair on
+                # failure. The repair loop mirrors call_with_schema's, but here
+                # we have the LLMResponse handy so we can return it (and the
+                # cumulative usage) alongside the parsed model.
+                attempts = self.repair_attempts + 1
+                last_response: LLMResponse | None = None
+                last_error: Exception | None = None
+                last_content = ""
+                cumulative = LLMUsage()
+
+                for attempt in range(attempts):
+                    last_response, turn_usage = await self._drive(messages, base_params)
+                    cumulative.prompt_tokens += turn_usage.prompt_tokens
+                    cumulative.completion_tokens += turn_usage.completion_tokens
+                    cumulative.total_tokens += turn_usage.total_tokens
+                    last_content = last_response.content
+
+                    try:
+                        payload = _extract_json_payload(last_content)
+                        data = json.loads(payload)
+                        parsed = self.response_schema.model_validate(data)
+                        return AgentResult(
+                            content=last_content,
+                            tool_calls=last_response.tool_calls,
+                            parsed=parsed,
+                            usage=cumulative,
+                            raw=last_response,
+                            run_context=ctx,
+                            tape_path=tape_path,
+                        )
+                    except (json.JSONDecodeError, ValidationError) as exc:
+                        last_error = exc
+                        if attempt + 1 >= attempts:
+                            break
+                        messages.append({"role": "assistant", "content": last_content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your previous response did not parse as the expected schema. "
+                                    f"Error: {exc}\n\nReturn ONLY a JSON object matching this schema "
+                                    "(no prose, no fences):\n"
+                                    f"{json.dumps(self.response_schema.model_json_schema())}"
+                                ),
+                            }
+                        )
+
+                raise StructuredOutputError(
+                    f"{self.name}: LLM output did not match schema after {attempts} attempt(s): {last_error}",
+                    last_content=last_content,
+                    last_error=last_error or RuntimeError("unknown"),
+                )
+            except Exception as exc:
+                attach_context(exc, ctx)
+                raise
+
+    def _make_capture_cm(self, ctx: RunContext) -> Any:
+        """Build the capture context for this run. Returns a real
+        :func:`capture_to` ctx when ``debug=True``, else a null ctx
+        that yields ``None`` so callers can branch on the value."""
+        if not self.debug:
+            return nullcontext(None)
+        path = resolve_debug_path(
+            debug_dir=self.debug_dir, run_id=ctx.run_id, agent_label=self.name
         )
+        return capture_to(path, agent_label=self.name)
 
     async def stream(
         self,

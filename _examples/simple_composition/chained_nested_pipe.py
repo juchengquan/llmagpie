@@ -1,5 +1,6 @@
 import time
-from llmagpie import MakeNode, BaseNode, BasePipeline
+
+from llmagpie import BaseNode, BasePipeline, MakeNode
 
 
 @MakeNode.from_class(func_name="async_call", outputs={"outputs": str})

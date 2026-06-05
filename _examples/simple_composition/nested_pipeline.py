@@ -1,5 +1,6 @@
 import asyncio
-from llmagpie.base.node import MakeNode, BaseNode
+
+from llmagpie.base.node import BaseNode, MakeNode
 from llmagpie.base.pipeline import BasePipeline
 
 
