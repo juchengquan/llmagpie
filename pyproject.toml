@@ -58,7 +58,7 @@ dev = [
     "pre-commit>=4.0",
     "pytest>=9.0",
     "pytest-cov>=5.0",
-    "ruff>=0.15.14",
+    "ruff>=0.15.16",
 ]
 
 [tool.mypy]
