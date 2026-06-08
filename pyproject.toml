@@ -25,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 exp = [
-    "sqlalchemy>=2.0.30,<3",
+    "sqlalchemy>=2.0.50,<3",
     "chromadb>=1.0.0,<2",
     "apscheduler>=3.10,<4",
 ]
