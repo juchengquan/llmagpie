@@ -34,7 +34,7 @@ openai = [
     "httpx>=0.28.0,<0.29",
 ]
 anthropic = [
-    "anthropic>=0.105.2,<1.0",
+    "anthropic>=0.107.1,<1.0",
 ]
 ollama = [
     "httpx>=0.28.0,<0.29",
